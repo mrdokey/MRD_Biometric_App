@@ -40,113 +40,175 @@ function captureImage(type) {
 }
 
 // =======================================================
-// MODUL 2: WIZARD U.ARE.U 4500 (30x QUEUE)
+// MODUL 2: WIZARD U.ARE.U 4500 (30x QUEUE) - WITH PREVIEW
 // =======================================================
-const fp_fingers = [
-    'L1_kelingking', 'L2_jari_manis', 'L3_tengah', 'L4_telunjuk', 'L5_jempol',
-    'R1_jempol', 'R2_telunjuk', 'R3_tengah', 'R4_jari_manis', 'R5_kelingking'
-];
-const fp_angles = ['front', 'left', 'right'];
+const fingers = ['L1','L2','L3','L4','L5','R1','R2','R3','R4','R5'];
+const angles = ['f', 'l', 'r']; // front, left, right
 
 let captureQueue = [];
 let currentStep = 0;
+let tempBase64 = ""; // Menampung hasil scan sementara sebelum dikonfirmasi
 
-fp_fingers.forEach(finger => {
-    fp_angles.forEach(angle => {
-        captureQueue.push({ finger: finger, angle: angle });
+// Generate 30 Antrean (L1f, L1l, L1r ... R5r)
+fingers.forEach(f => {
+    angles.forEach(a => {
+        captureQueue.push({ id: f + a, label: getFingerLabel(f, a) });
     });
 });
 
-function startFingerprintWizard() {
-    if (currentStep >= captureQueue.length) return;
-
-    const task = captureQueue[currentStep];
-    const instructionEl = document.getElementById('fp_instruction');
-    const counterEl = document.getElementById('fp_counter');
-    const btnAction = document.getElementById('btn_fp_action');
-
-    const formattedFinger = task.finger.replace(/_/g, ' ').toUpperCase();
-    const formattedAngle = task.angle.toUpperCase();
-
-    instructionEl.innerText = `Tempelkan Jari: ${formattedFinger} - Bagian ${formattedAngle}`;
-    counterEl.innerText = `Progress: ${currentStep + 1} / 30`;
-    
-    btnAction.innerText = "Scan Scanner Sekarang";
-    btnAction.onclick = () => triggerLocalScanner(task.finger, task.angle);
+function getFingerLabel(f, a) {
+    const names = {
+        'L1': 'Kelingking Kiri', 'L2': 'Jari Manis Kiri', 'L3': 'Jari Tengah Kiri', 'L4': 'Telunjuk Kiri', 'L5': 'Jempol Kiri',
+        'R1': 'Jempol Kanan', 'R2': 'Telunjuk Kanan', 'R3': 'Jari Tengah Kanan', 'R4': 'Jari Manis Kanan', 'R5': 'Kelingking Kanan'
+    };
+    const pos = { 'f': 'Depan (Front)', 'l': 'Samping Kiri (Left)', 'r': 'Samping Kanan (Right)' };
+    return `${names[f]} - Bagian ${pos[a]}`;
 }
 
-function triggerLocalScanner(finger, angle) {
+function startFingerprintWizard() {
+    currentStep = 0;
+    document.getElementById('btn_fp_action').style.display = 'none';
+    showStepInstruction();
+    triggerLocalScanner(); 
+}
+
+function showStepInstruction() {
+    const task = captureQueue[currentStep];
+    document.getElementById('fp_label').innerText = `Perekaman: ${task.id}`;
+    document.getElementById('fp_instruction').innerText = `Tempelkan ${task.label}`;
+    document.getElementById('fp_counter').innerText = `Progress: ${currentStep + 1} / 30`;
+}
+
+// Fungsi memanggil Hardware (C# bridge)
+function triggerLocalScanner() {
     const instructionEl = document.getElementById('fp_instruction');
-    instructionEl.innerText = "Membaca Scanner...";
+    instructionEl.innerText = "⏳ Menunggu Jari di Sensor...";
+    instructionEl.style.color = "#3b82f6";
+
+    // Simulasi atau Panggil API Engine C#
+    // Ganti URL ini dengan endpoint scan fingerprint di engine kakak jika ada
+    fetch('http://localhost:5000/api/scan_fingerprint') 
+    .then(res => res.json())
+    .then(data => {
+        // Asumsi data.base64 adalah hasil dari mesin U.are.U
+        tempBase64 = data.base64 || "DUMMY_BASE64_RESULT"; 
+        
+        // Tampilkan ke Preview
+        const previewImg = document.getElementById('fp_preview_img');
+        previewImg.src = "data:image/png;base64," + tempBase64;
+        document.getElementById('fp_preview_container').style.display = 'block';
+        
+        instructionEl.innerText = "Selesai Membaca! Silakan Review Gambar.";
+        instructionEl.style.color = "#16a34a";
+    })
+    .catch(err => {
+        // Fallback jika API belum siap (Dummy untuk Testing)
+        tempBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+        document.getElementById('fp_preview_img').src = "data:image/png;base64," + tempBase64;
+        document.getElementById('fp_preview_container').style.display = 'block';
+        instructionEl.innerText = "Review Hasil (Mode Simulasi)";
+    });
+}
+
+function confirmFingerprint() {
+    const task = captureQueue[currentStep];
+    const inputId = `fp_${task.id}`;
     
-    setTimeout(() => {
-        const inputId = `fp_${finger}_${angle}`;
-        let hiddenInput = document.getElementById(inputId);
-        
-        if (!hiddenInput) {
-            hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.id = inputId;
-            document.getElementById('fp_data_container').appendChild(hiddenInput);
-        }
-        
-        hiddenInput.value = `BASE64_DATA_FOR_${finger}_${angle}`;
-        currentStep++;
-        
-        if (currentStep < captureQueue.length) {
-            startFingerprintWizard(); 
-        } else {
-            finalizeWizard(); 
-        }
-    }, 1000);
+    // Simpan ke Hidden Input
+    let hiddenInput = document.getElementById(inputId);
+    if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.id = inputId;
+        document.getElementById('fp_data_container').appendChild(hiddenInput);
+    }
+    hiddenInput.value = tempBase64;
+
+    // Sembunyikan preview dan lanjut
+    document.getElementById('fp_preview_container').style.display = 'none';
+    currentStep++;
+
+    if (currentStep < captureQueue.length) {
+        showStepInstruction();
+        triggerLocalScanner(); // Otomatis trigger jari berikutnya
+    } else {
+        finalizeWizard();
+    }
 }
 
 function finalizeWizard() {
-    document.getElementById('fp_instruction').innerText = "✅ SEMUA 30 JARI TEREKAM";
+    document.getElementById('fp_label').innerText = "✅ PROSES SCAN SELESAI";
+    document.getElementById('fp_instruction').innerText = "Silakan cek ulang atau langsung simpan data.";
     document.getElementById('fp_instruction').style.color = "green";
-    document.getElementById('btn_fp_action').style.display = "none";
     document.getElementById('fp_counter').innerText = "Progress: 30 / 30";
     
+    // Tampilkan tombol simpan & section retake
     document.getElementById('save_section').style.display = "block";
+    document.getElementById('retake_section').style.display = "block";
     
+    // Isi Dropdown Retake
     const retakeSelect = document.getElementById('retake_select');
-    retakeSelect.innerHTML = '';
-    
+    retakeSelect.innerHTML = '<option value="">-- Pilih Jari untuk Review/Retake --</option>';
     captureQueue.forEach(task => {
         const option = document.createElement('option');
-        option.value = `${task.finger}|${task.angle}`; 
-        const textFinger = task.finger.replace(/_/g, ' ').toUpperCase();
-        option.text = `${textFinger} - ${task.angle.toUpperCase()}`;
+        option.value = task.id; 
+        option.text = `${task.id} - ${task.label}`;
         retakeSelect.appendChild(option);
     });
+
+    // Tambahkan event listener agar saat pilih dropdown, gambar yang sudah tersimpan muncul
+    retakeSelect.onchange = previewSelectedRetake;
+}
+
+function previewSelectedRetake() {
+    const selectedId = document.getElementById('retake_select').value;
+    const statusEl = document.getElementById('retake_status');
+    const previewImg = document.getElementById('fp_preview_img');
+    const container = document.getElementById('fp_preview_container');
+
+    if(!selectedId) {
+        container.style.display = 'none';
+        return;
+    }
+
+    // Ambil data base64 yang sudah tersimpan di hidden input
+    const savedData = document.getElementById(`fp_${selectedId}`).value;
     
-    document.getElementById('retake_section').style.display = "block";
+    if(savedData) {
+        previewImg.src = "data:image/png;base64," + savedData;
+        container.style.display = 'block';
+        statusEl.innerText = `Menampilkan hasil scan: ${selectedId}`;
+        statusEl.style.color = "#64748b";
+        statusEl.style.display = "block";
+    }
 }
 
 // =======================================================
 // MODUL 3: RETAKE SPECIFIC FINGERPRINT
 // =======================================================
 function retakeFingerprint() {
-    const selected = document.getElementById('retake_select').value.split('|');
-    const finger = selected[0];
-    const angle = selected[1];
+    const selectedId = document.getElementById('retake_select').value;
     const statusEl = document.getElementById('retake_status');
-    const btnRetake = document.querySelector('#retake_section button');
+    
+    statusEl.innerText = "⏳ Hubungkan sensor untuk " + selectedId + "...";
+    statusEl.style.display = "block";
+    statusEl.style.color = "#3b82f6";
 
-    btnRetake.innerText = "Membaca Scanner...";
-    statusEl.style.display = "none";
-
-    setTimeout(() => {
-        const inputId = `fp_${finger}_${angle}`;
+    fetch('http://localhost:5000/api/scan_fingerprint')
+    .then(res => res.json())
+    .then(data => {
+        const inputId = `fp_${selectedId}`;
         let hiddenInput = document.getElementById(inputId);
         if(hiddenInput) {
-            hiddenInput.value = `DUMMY_RETAKE_BASE64_FOR_${finger}_${angle}`;
+            hiddenInput.value = data.base64;
+            statusEl.innerText = `✅ Berhasil! Data ${selectedId} telah diperbarui.`;
+            statusEl.style.color = "#16a34a";
         }
-        
-        btnRetake.innerText = "🔄 Ulangi Scan Jari Terpilih";
-        statusEl.innerText = `Update: Jari ${finger.replace(/_/g, ' ')} (${angle}) berhasil ditimpa!`;
-        statusEl.style.display = "block";
-    }, 1000);
+    })
+    .catch(() => {
+        statusEl.innerText = "❌ Gagal koneksi ke scanner.";
+        statusEl.style.color = "red";
+    });
 }
 
 // =======================================================

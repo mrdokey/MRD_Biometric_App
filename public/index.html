@@ -127,32 +127,44 @@
         </div>
 
         <div class="card">
-            <h2 class="card-title">Perekaman Sidik Jari (U.are.U 4500)</h2>
-            <div class="camera-box" style="padding:30px;">
-                <h3 id="fp_instruction" style="color:#d97706; margin-bottom:10px;">Klik Mulai untuk Merekam Jari</h3>
-                <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
-                <button id="btn_fp_action" class="btn-dark" onclick="startFingerprintWizard()">Mulai Scan Sidik Jari</button>
-            </div>
-            
-            <div id="fp_data_container" style="display:none;"></div>
-
-            <div id="retake_section" style="display:none; margin-top: 20px; background:#f1f5f9; padding:20px; border-radius:var(--radius); border:1px solid #cbd5e1;">
-                <h4 style="margin-bottom:10px; color:#1e293b;">Ulangi Perekaman Jari Tertentu (Opsional)</h4>
-                <p style="font-size:13px; color:#64748b; margin-bottom:10px;">Pilih jari dari menu dropdown jika Anda merasa ada hasil scan yang perlu diperbaiki, lalu klik Ulangi.</p>
-                <div class="input-group">
-                    <select id="retake_select" style="padding:10px; font-weight:bold;"></select>
-                </div>
-                <button class="btn-primary" style="margin-top:10px; background:#f59e0b;" onclick="retakeFingerprint()">🔄 Ulangi Scan Jari Terpilih</button>
-                <p id="retake_status" style="color:#16a34a; font-weight:bold; font-size:14px; margin-top:10px; display:none;">Berhasil direkam ulang!</p>
-            </div>
-
-            <div id="save_section" style="display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; text-align: center;">
-                <p style="color: #16a34a; font-weight: bold; margin-bottom: 10px;">✅ Seluruh Data Siap Disimpan</p>
-                <button class="btn-primary" style="background: #16a34a; font-size: 18px; padding: 15px;" onclick="simpanDataKeDatabase()">
-                    💾 SIMPAN DATA REGISTRASI
-                </button>
+    <h2 class="card-title">Perekaman Sidik Jari (U.are.U 4500)</h2>
+    <div class="camera-box" style="padding:20px;">
+        <h3 id="fp_label" style="color:#1e293b; margin-bottom:5px;">Siap Memulai?</h3>
+        <p id="fp_instruction" style="color:#d97706; font-weight:bold; margin-bottom:15px;">Klik tombol di bawah untuk mulai scan</p>
+        
+        <!-- AREA PREVIEW BARU -->
+        <div id="fp_preview_container" style="display:none; margin-bottom: 20px; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; background: white;">
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 8px;">HASIL SCAN TERAKHIR:</p>
+            <img id="fp_preview_img" style="width:140px; height:180px; border:2px solid var(--accent); border-radius:4px; background:#f8fafc; object-fit: contain;">
+            <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
+                <button class="btn-primary" style="background:#16a34a; width:140px;" onclick="confirmFingerprint()">✅ OKE, LANJUT</button>
+                <button class="btn-primary" style="background:#dc2626; width:140px;" onclick="triggerLocalScanner()">🔄 SCAN ULANG</button>
             </div>
         </div>
+
+        <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
+        <button id="btn_fp_action" class="btn-dark" onclick="startFingerprintWizard()">Mulai Scan Sidik Jari</button>
+    </div>
+    
+    <div id="fp_data_container" style="display:none;"></div>
+
+    <!-- Section Retake Tetap Ada untuk Koreksi di Akhir -->
+    <div id="retake_section" style="display:none; margin-top: 20px; background:#f1f5f9; padding:20px; border-radius:var(--radius); border:1px solid #cbd5e1;">
+        <h4 style="margin-bottom:10px; color:#1e293b;">Ulangi Jari Tertentu (Opsional)</h4>
+        <div class="input-group">
+            <select id="retake_select" style="padding:10px; font-weight:bold;"></select>
+        </div>
+        <button class="btn-primary" style="margin-top:10px; background:#f59e0b;" onclick="retakeFingerprint()">🔄 Ulangi Scan Jari Terpilih</button>
+        <p id="retake_status" style="color:#16a34a; font-weight:bold; font-size:14px; margin-top:10px; display:none;"></p>
+    </div>
+
+    <div id="save_section" style="display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; text-align: center;">
+        <p style="color: #16a34a; font-weight: bold; margin-bottom: 10px;">✅ Seluruh Data Siap Disimpan</p>
+        <button class="btn-primary" style="background: #16a34a; font-size: 18px; padding: 15px;" onclick="simpanDataKeDatabase()">
+            💾 SIMPAN DATA REGISTRASI
+        </button>
+    </div>
+</div>
     </div>
 
     <div id="database" class="tab-content">
