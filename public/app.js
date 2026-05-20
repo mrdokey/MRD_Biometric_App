@@ -302,29 +302,40 @@ function renderTable(dataList) {
     tbody.innerHTML = ''; 
     
     if (dataList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Tidak ada data tersimpan di SQLite.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Tidak ada data tersimpan.</td></tr>`;
         return;
     }
 
     dataList.forEach(row => {
+        // Parse JSON biodata & kamera agar mudah diekstrak
+        let bio = {}, cam = {};
+        try { bio = JSON.parse(row.json_biodata); } catch(e){}
+        try { cam = JSON.parse(row.json_kamera); } catch(e){}
+
+        // Encode seluruh baris agar bisa dikirim ke fungsi Edit
+        const encodedRow = encodeURIComponent(JSON.stringify(row));
+
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td style="font-size:12px; color:#64748b;">${row.timestamp}</td>
             <td style="font-weight:bold;">${row.nis}</td>
             <td>${row.nama}</td>
-            <td style="font-size:13px;">${row.tgl_lahir} <br> (${row.jk})</td>
-            <td style="font-size:13px;">${row.parents}</td>
-            <td style="font-size:13px;">${row.no_wa} <br> <span style="color:#64748b;">${row.alamat}</span></td>
+            <td style="font-size:13px;">${bio.tgl_lahir || '-'} <br> (${bio.jk || '-'})</td>
+            <td style="font-size:13px;">${bio.parents || '-'}</td>
+            <td style="font-size:13px;">${bio.no_wa || '-'} <br> <span style="color:#64748b;">${bio.alamat || '-'}</span></td>
             <td><code style="background:#f1f5f9; padding:2px 5px; border-radius:4px; font-size:12px;">${row.folder}</code></td>
             <td style="text-align:center;">
-                <button onclick="viewMedia('${row.nama}', 'Wajah', '${row.media_wajah}')" style="background:#3b82f6; color:white; padding:5px 10px; font-size:12px; border:none; border-radius:4px; cursor:pointer; margin-bottom:4px;">🖼️ Wajah</button>
-                <br>
-                <button onclick="viewMedia('${row.nama}', 'Jari L1 (Front)', '${row.media_jari_L1}')" style="background:#64748b; color:white; padding:5px 10px; font-size:12px; border:none; border-radius:4px; cursor:pointer;">👆 Jari (L1)</button>
+                <button onclick="viewMedia('${row.nama}', 'Wajah', '${cam.face_front || ''}')" style="background:#3b82f6; color:white; padding:5px; font-size:12px; border:none; border-radius:4px; cursor:pointer; width:100%; margin-bottom:4px;">🖼️ Preview</button>
+                <div style="display:flex; gap:4px;">
+                    <button onclick="editDataSiswa('${encodedRow}')" style="background:#f59e0b; color:white; padding:5px; font-size:12px; border:none; border-radius:4px; cursor:pointer; width:50%;">✏️ Edit</button>
+                    <button onclick="hapusDataSiswa('${row.nis}', '${row.nama}')" style="background:#ef4444; color:white; padding:5px; font-size:12px; border:none; border-radius:4px; cursor:pointer; width:50%;">🗑️ Hapus</button>
+                </div>
             </td>
         `;
         tbody.appendChild(tr);
     });
 }
+
 
 function viewMedia(nama, jenisMedia, base64String) {
     if (!base64String) {
@@ -350,3 +361,61 @@ window.onload = () => {
     cekStatusAktivasiBackend(); // Validasi lisensi otomatis saat startup
     if(typeof switchTab === 'function') switchTab('enrollment');
 };
+// =======================================================
+// FUNGSI EDIT DATA & KEMBALI KE FORM
+// =======================================================
+function editDataSiswa(encodedData) {
+    const data = JSON.parse(decodeURIComponent(encodedData));
+    const bio = JSON.parse(data.json_biodata);
+    const cam = JSON.parse(data.json_kamera);
+    const fp = JSON.parse(data.json_jari);
+
+    // 1. Pindah ke Tab Registrasi
+    switchTab('enrollment');
+
+    // 2. Isi Form Teks
+    document.getElementById('nis').value = data.nis;
+    document.getElementById('nis').readOnly = true; // KUNCI NIS agar folder tidak pecah
+    document.getElementById('nis').style.backgroundColor = "#e2e8f0";
+    document.getElementById('nama').value = data.nama;
+    document.getElementById('tgl_lahir').value = bio.tgl_lahir || '';
+    document.getElementById('jk').value = bio.jk || 'L';
+    document.getElementById('parents').value = bio.parents || '';
+    document.getElementById('no_wa').value = bio.no_wa || '';
+    document.getElementById('email').value = bio.email || '';
+    document.getElementById('alamat').value = bio.alamat || '';
+
+    // 3. Tampilkan Preview Gambar Wajah/APD
+    if (cam.face_front) {
+        document.getElementById('preview_face_front').src = `data:image/jpeg;base64,${cam.face_front}`;
+        document.getElementById('preview_face_front').style.display = 'block';
+        document.getElementById('b64_face_front').value = cam.face_front;
+    }
+    // Lakukan hal serupa untuk APD jika diperlukan
+
+    // 4. Ubah Tombol Simpan
+    document.getElementById('save_section').style.display = "block";
+    const btnSave = document.querySelector('#save_section button');
+    btnSave.innerHTML = "💾 UPDATE DATA (RE-SAVE)";
+    btnSave.style.background = "#f59e0b"; // Warna orange tanda edit
+    
+    // Auto Scroll ke Atas
+    window.scrollTo(0, 0);
+    alert(`Mode Edit Aktif untuk ${data.nama}.\nSilakan ubah data atau rekam ulang foto/jari, lalu klik Update Data di paling bawah.`);
+}
+
+// =======================================================
+// FUNGSI HAPUS DATA
+// =======================================================
+function hapusDataSiswa(nis, nama) {
+    if(!confirm(`Yakin ingin HAPUS PERMANEN data ${nama} (NIS: ${nis}) beserta foldernya?`)) return;
+
+    fetch(`http://localhost:5000/api/siswa/${nis}`, { method: 'DELETE' })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            alert(`Terhapus! ${data.message}`);
+            loadDataTersimpan();
+        } else alert(`Gagal: ${data.message}`);
+    });
+}
