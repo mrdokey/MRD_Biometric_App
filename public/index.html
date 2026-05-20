@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MRD Biometric Enrollment</title>
+    <style>
+        /* CSS Reset & Variables (Offline Ready) */
+        :root {
+            --bg: #f8fafc;
+            --surface: #ffffff;
+            --primary: #1e293b;
+            --accent: #3b82f6;
+            --text: #334155;
+            --border: #e2e8f0;
+            --radius: 8px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); padding: 20px; }
+        
+        /* Navigation / Tabs */
+        .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; }
+        .nav-btn { padding: 10px 20px; border: none; background: transparent; font-size: 16px; font-weight: bold; color: #64748b; cursor: pointer; border-radius: var(--radius); transition: 0.3s; }
+        .nav-btn.active { background: var(--primary); color: #fff; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Layout System */
+        .card { background: var(--surface); padding: 20px; border-radius: var(--radius); box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; border: 1px solid var(--border); }
+        .card-title { border-left: 4px solid var(--accent); padding-left: 10px; margin-bottom: 15px; color: var(--primary); }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+
+        /* Forms & Inputs */
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        label { font-size: 13px; font-weight: 600; color: #475569; }
+        input, select, textarea { padding: 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; width: 100%; outline: none; transition: border 0.3s; }
+        input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+
+        /* Media & Buttons */
+        .camera-box { border: 2px dashed #cbd5e1; padding: 15px; text-align: center; border-radius: var(--radius); background: #f1f5f9; }
+        video { width: 100%; border-radius: 4px; background: #000; margin-bottom: 10px; }
+        canvas { display: none; }
+        .preview-img { width: 100%; display: none; margin-top: 10px; border: 1px solid var(--primary); border-radius: 4px; }
+        
+        button { padding: 10px 15px; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn-primary { background: var(--accent); color: white; width: 100%; margin-bottom: 5px; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-dark { background: var(--primary); color: white; font-size: 16px; padding: 15px; width: 100%; }
+        
+        /* Table Styles for View Data */
+        .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; min-width: 1200px; }
+        .data-table th, .data-table td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left; }
+        .data-table th { background: #f8fafc; font-weight: 600; color: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <div class="nav-tabs">
+        <button class="nav-btn active" onclick="switchTab('enrollment')">📝 Registrasi Siswa</button>
+        <button class="nav-btn" onclick="switchTab('database')">🗄️ Data Tersimpan</button>
+    </div>
+
+    <div id="enrollment" class="tab-content active">
+        <div class="card">
+            <h2 class="card-title">Data Siswa</h2>
+            <div class="grid-2">
+                <div class="input-group"><label>NIS</label><input type="text" id="nis" placeholder="Contoh: 992341"></div>
+                <div class="input-group"><label>Nama Lengkap</label><input type="text" id="nama"></div>
+                <div class="input-group"><label>Tanggal Lahir</label><input type="date" id="tgl_lahir"></div>
+                <div class="input-group">
+                    <label>Jenis Kelamin</label>
+                    <select id="jk">
+                        <option value="L">Laki-Laki</option>
+                        <option value="P">Perempuan</option>
+                    </select>
+                </div>
+                <div class="input-group"><label>Nama Orang Tua</label><input type="text" id="parents"></div>
+                <div class="input-group"><label>No WA</label><input type="tel" id="no_wa" placeholder="08xxx"></div>
+                <div class="input-group"><label>Email</label><input type="email" id="email"></div>
+                <div class="input-group" style="grid-column: 1 / -1;"><label>Alamat</label><textarea id="alamat" rows="2"></textarea></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">Capture Kamera (Webcam)</h2>
+            <p style="font-size:13px; color:#64748b; margin-bottom:15px;">*Jika gambar kurang pas, klik tombol capture lagi untuk mengambil ulang (timpa foto).</p>
+            <div class="grid-3">
+                <div class="camera-box">
+                    <video id="webcam" autoplay playsinline></video>
+                    <canvas id="canvas"></canvas>
+                    <button class="btn-primary" onclick="captureImage('face_front')">📸 Wajah</button>
+                    <button class="btn-primary" onclick="captureImage('apd_left')">📸 Telapak Kiri</button>
+                    <button class="btn-primary" onclick="captureImage('apd_right')">📸 Telapak Kanan</button>
+                </div>
+                <div class="camera-box">
+                    <h4 style="margin-bottom:10px;">Hasil Wajah & Kiri</h4>
+                    <img id="preview_face_front" class="preview-img">
+                    <input type="hidden" id="b64_face_front">
+                    <img id="preview_apd_left" class="preview-img">
+                    <input type="hidden" id="b64_apd_left">
+                </div>
+                <div class="camera-box">
+                    <h4 style="margin-bottom:10px;">Hasil Kanan</h4>
+                    <img id="preview_apd_right" class="preview-img">
+                    <input type="hidden" id="b64_apd_right">
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="card-title">Perekaman Sidik Jari (U.are.U 4500)</h2>
+            <div class="camera-box" style="padding:30px;">
+                <h3 id="fp_instruction" style="color:#d97706; margin-bottom:10px;">Klik Mulai untuk Merekam Jari</h3>
+                <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
+                <button id="btn_fp_action" class="btn-dark" onclick="startFingerprintWizard()">Mulai Scan Sidik Jari</button>
+            </div>
+            
+            <div id="fp_data_container" style="display:none;"></div>
+
+            <div id="retake_section" style="display:none; margin-top: 20px; background:#f1f5f9; padding:20px; border-radius:var(--radius); border:1px solid #cbd5e1;">
+                <h4 style="margin-bottom:10px; color:#1e293b;">Ulangi Perekaman Jari Tertentu (Opsional)</h4>
+                <p style="font-size:13px; color:#64748b; margin-bottom:10px;">Pilih jari dari menu dropdown jika Anda merasa ada hasil scan yang perlu diperbaiki, lalu klik Ulangi.</p>
+                <div class="input-group">
+                    <select id="retake_select" style="padding:10px; font-weight:bold;"></select>
+                </div>
+                <button class="btn-primary" style="margin-top:10px; background:#f59e0b;" onclick="retakeFingerprint()">🔄 Ulangi Scan Jari Terpilih</button>
+                <p id="retake_status" style="color:#16a34a; font-weight:bold; font-size:14px; margin-top:10px; display:none;">Berhasil direkam ulang!</p>
+            </div>
+
+            <div id="save_section" style="display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; text-align: center;">
+                <p style="color: #16a34a; font-weight: bold; margin-bottom: 10px;">✅ Seluruh Data Siap Disimpan</p>
+                <button class="btn-primary" style="background: #16a34a; font-size: 18px; padding: 15px;" onclick="simpanDataKeDatabase()">
+                    💾 SIMPAN DATA REGISTRASI
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="database" class="tab-content">
+        <div class="card">
+            <h2 class="card-title">Database Lokal (SQLite)</h2>
+            <p style="font-size:14px; color:#64748b; margin-bottom:15px;">Daftar siswa yang telah direkam pada mesin ini.</p>
+            
+            <button class="btn-primary" style="width:auto; margin-bottom:15px; background:#10b981;" onclick="loadDataTersimpan()">🔄 Refresh Data</button>
+
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Waktu Rekam</th>
+                            <th>NIS</th>
+                            <th>Nama Lengkap</th>
+                            <th>Tgl Lahir / JK</th>
+                            <th>Orang Tua</th>
+                            <th>Kontak / Alamat</th>
+                            <th>Folder Output</th>
+                            <th style="text-align:center;">Aksi (Media)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table_body_siswa">
+                        <tr>
+                            <td colspan="8" style="text-align:center; color:#94a3b8; padding:20px;">
+                                Klik "Refresh Data" untuk memuat...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="imageModal" style="display:none; position:fixed; z-index:999; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,0.8);">
+        <div style="background-color:#fefefe; margin:5% auto; padding:20px; border:1px solid #888; width:80%; max-width:600px; border-radius:8px;">
+            <span onclick="closeImageModal()" style="color:#aaa; float:right; font-size:28px; font-weight:bold; cursor:pointer;">&times;</span>
+            <h3 id="modalTitle" style="margin-bottom:15px; color:#1e293b;">Preview Gambar</h3>
+            <div style="text-align:center;">
+                <img id="modalImage" style="max-width:100%; max-height:400px; border:2px solid #ccc; border-radius:4px;" src="" alt="Preview">
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>

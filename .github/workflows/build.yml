@@ -1,0 +1,37 @@
+name: Build MRD Biometric Engine (Windows Exe)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Memungkinkan Anda menekan tombol build manual dari HP
+
+jobs:
+  build-windows:
+    runs-on: windows-latest # Menggunakan server Windows gratis dari GitHub
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup .NET SDK 8.0
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore Dependencies
+      run: dotnet restore
+
+    - name: Build and Publish Standalone Exe
+      # Publish ke target Windows 64-bit, jadikan 1 file .exe saja
+      run: dotnet publish MRD_Engine.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish_output
+
+    - name: Pack with Public Folder
+      # Gabungkan MRD_Engine.exe dengan folder public (UI Web) agar jadi 1 paket siap rilis
+      run: |
+        Copy-Item -Path .\public -Destination .\publish_output\public -Recurse
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: MRD_Biometric_App_Windows_x64
+        path: publish_output/
