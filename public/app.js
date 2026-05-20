@@ -28,14 +28,12 @@ function captureImage(type) {
     
     const base64Data = canvas.toDataURL('image/jpeg', 0.8);
     
-    // Tampilkan preview (menimpa gambar lama jika diklik ulang)
     const previewEl = document.getElementById(`preview_${type}`);
     if(previewEl) {
         previewEl.src = base64Data;
         previewEl.style.display = 'block';
     }
     
-    // Simpan/Timpa Base64 murni ke input hidden
     const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, "");
     const inputEl = document.getElementById(`b64_${type}`);
     if(inputEl) inputEl.value = cleanBase64;
@@ -53,7 +51,6 @@ const fp_angles = ['front', 'left', 'right'];
 let captureQueue = [];
 let currentStep = 0;
 
-// Build antrian 30 kombinasi
 fp_fingers.forEach(finger => {
     fp_angles.forEach(angle => {
         captureQueue.push({ finger: finger, angle: angle });
@@ -82,7 +79,6 @@ function triggerLocalScanner(finger, angle) {
     const instructionEl = document.getElementById('fp_instruction');
     instructionEl.innerText = "Membaca Scanner...";
     
-    // MOCKING: Delay 1 detik untuk simulasi hardware scanner
     setTimeout(() => {
         const inputId = `fp_${finger}_${angle}`;
         let hiddenInput = document.getElementById(inputId);
@@ -95,13 +91,12 @@ function triggerLocalScanner(finger, angle) {
         }
         
         hiddenInput.value = `BASE64_DATA_FOR_${finger}_${angle}`;
-        
         currentStep++;
         
         if (currentStep < captureQueue.length) {
-            startFingerprintWizard(); // Loop lanjut
+            startFingerprintWizard(); 
         } else {
-            finalizeWizard(); // 30 selesai, munculkan menu save & retake
+            finalizeWizard(); 
         }
     }, 1000);
 }
@@ -112,16 +107,14 @@ function finalizeWizard() {
     document.getElementById('btn_fp_action').style.display = "none";
     document.getElementById('fp_counter').innerText = "Progress: 30 / 30";
     
-    // Munculkan Tombol Simpan
     document.getElementById('save_section').style.display = "block";
     
-    // Setup Dropdown Retake Menu
     const retakeSelect = document.getElementById('retake_select');
     retakeSelect.innerHTML = '';
     
     captureQueue.forEach(task => {
         const option = document.createElement('option');
-        option.value = `${task.finger}|${task.angle}`; // Payload separator
+        option.value = `${task.finger}|${task.angle}`; 
         const textFinger = task.finger.replace(/_/g, ' ').toUpperCase();
         option.text = `${textFinger} - ${task.angle.toUpperCase()}`;
         retakeSelect.appendChild(option);
@@ -143,12 +136,9 @@ function retakeFingerprint() {
     btnRetake.innerText = "Membaca Scanner...";
     statusEl.style.display = "none";
 
-    // MOCKING: Simulasi ulang scan untuk 1 jari spesifik
     setTimeout(() => {
         const inputId = `fp_${finger}_${angle}`;
         let hiddenInput = document.getElementById(inputId);
-        
-        // Timpa value lama
         if(hiddenInput) {
             hiddenInput.value = `DUMMY_RETAKE_BASE64_FOR_${finger}_${angle}`;
         }
@@ -180,7 +170,6 @@ function simpanDataKeDatabase() {
         btnSave.style.background = "#94a3b8";
     }
 
-    // Kompilasi JSON Payload
     const payload = {
         nis: nis,
         nama: nama,
@@ -205,62 +194,107 @@ function simpanDataKeDatabase() {
         payload.sidik_jari[task.finger][task.angle] = val;
     });
 
-    console.log("PAYLOAD JSON FINAL UNTUK DIKIRIM KE C# ENGINE:", payload);
-    
-    // TAHAP 3: Integrasi API ke Engine Desktop
-    // fetch('http://localhost:5000/api/save', { ... })
-    
-    setTimeout(() => {
-        alert(`Berhasil! Data siswa ${nama} (NIS: ${nis}) telah disimpan.\n\nFolder Dinas sudah digenerate.`);
-        window.location.reload(); 
-    }, 1500);
+    // KIRIM KE C# REAL ENGINE
+    fetch('http://localhost:5000/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            alert(`Berhasil! Data siswa ${nama} (NIS: ${nis}) telah disimpan.\n\n${data.message}`);
+            window.location.reload(); 
+        } else {
+            alert(`Gagal Menyimpan: ${data.message}`);
+            if(btnSave) {
+                btnSave.innerText = "💾 SIMPAN DATA REGISTRASI";
+                btnSave.disabled = false;
+                btnSave.style.background = "#16a34a";
+            }
+        }
+    })
+    .catch(err => {
+        console.error("Gagal koneksi engine backend", err);
+        alert("Koneksi gagal! Pastikan MRD_Engine.exe sudah dijalankan di laptop Windows.");
+        if(btnSave) {
+            btnSave.innerText = "💾 SIMPAN DATA REGISTRASI";
+            btnSave.disabled = false;
+            btnSave.style.background = "#16a34a";
+        }
+    });
 }
 
 // =======================================================
-// MODUL 5: DATABASE VIEWER & MODAL IMAGE
+// MODUL 5: DATABASE VIEWER, LISENSI & MODAL IMAGE
 // =======================================================
+
+// REVISI: Fungsi Cek Status Aktivasi dari SQLite Backend C#
+function cekStatusAktivasiBackend() {
+    fetch('http://localhost:5000/api/status')
+    .then(res => res.json())
+    .then(data => {
+        const statusEl = document.getElementById('activation_status');
+        const formGroup = document.getElementById('activation_form_group');
+        
+        if(data.is_activated) {
+            if(statusEl) {
+                statusEl.innerText = "✅ STATUS LISENSI: FULL VERSION AKTIF";
+                statusEl.style.color = "#16a34a";
+            }
+            if(formGroup) formGroup.style.display = "none"; // Sembunyikan input token jika sukses
+        } else {
+            if(statusEl) {
+                statusEl.innerText = "⚠️ STATUS LISENSI: DEMO VERSION (Maksimal 10 Registrasi Siswa)";
+                statusEl.style.color = "#d97706";
+            }
+            if(formGroup) formGroup.style.display = "flex";
+        }
+    })
+    .catch(() => {
+        // Fallback offline UI di HP sebelum C# terkoneksi
+        const statusEl = document.getElementById('activation_status');
+        if(statusEl) statusEl.innerText = "⚠️ Versi Demo (Belum Terkoneksi ke MRD_Engine.exe)";
+    });
+}
+
+// REVISI: Fungsi kirim Token Aktivasi Ke C# Backend
+function eksekusiAktivasiToken() {
+    const inputCode = document.getElementById('license_code').value;
+    if(!inputCode) {
+        alert("Masukkan kode aktivasi terlebih dahulu!");
+        return;
+    }
+
+    fetch('http://localhost:5000/api/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: inputCode })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === "success") {
+            alert(data.message);
+            window.location.reload(); // Refresh halaman untuk aktifkan mode penuh
+        } else {
+            alert(`Gagal Aktivasi: ${data.message}`);
+        }
+    })
+    .catch(err => {
+        alert("Koneksi gagal! Pastikan engine C# menyala untuk memverifikasi lisensi.");
+    });
+}
+
 function loadDataTersimpan() {
     const tbody = document.getElementById('table_body_siswa');
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">⏳ Memuat data dari SQLite...</td></tr>`;
 
-    // TODO TAHAP 3: Fetch dari C# Engine
-    // fetch('http://localhost:5000/api/siswa')
-    //    .then(res => res.json())
-    //    .then(data => renderTable(data))
-    
-    // MOCKING DATA (Simulasi balikan dari database C#):
-    setTimeout(() => {
-        const mockDbData = [
-            {
-                timestamp: "2026-05-20 14:30",
-                nis: "992341",
-                nama: "Ahmad Subarjo",
-                tgl_lahir: "2008-01-15",
-                jk: "L",
-                parents: "Budi Santoso",
-                no_wa: "08123456789",
-                alamat: "Jl. Merdeka No 10, Bali",
-                folder: "992341_Ahmad",
-                media_wajah: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
-                media_jari_L1: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=" 
-            },
-            {
-                timestamp: "2026-05-20 15:10",
-                nis: "992342",
-                nama: "Siti Aminah",
-                tgl_lahir: "2009-03-22",
-                jk: "P",
-                parents: "Joko Anwar",
-                no_wa: "085711223344",
-                alamat: "Jl. Diponegoro, Denpasar",
-                folder: "992342_Siti",
-                media_wajah: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=",
-                media_jari_L1: ""
-            }
-        ];
-        
-        renderTable(mockDbData);
-    }, 800);
+    fetch('http://localhost:5000/api/siswa')
+    .then(res => res.json())
+    .then(data => renderTable(data))
+    .catch(err => {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:red;">Gagal memuat data. Hubungkan ke MRD_Engine.exe!</td></tr>`;
+    });
 }
 
 function renderTable(dataList) {
@@ -268,13 +302,12 @@ function renderTable(dataList) {
     tbody.innerHTML = ''; 
     
     if (dataList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Tidak ada data tersimpan.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Tidak ada data tersimpan di SQLite.</td></tr>`;
         return;
     }
 
     dataList.forEach(row => {
         const tr = document.createElement('tr');
-        
         tr.innerHTML = `
             <td style="font-size:12px; color:#64748b;">${row.timestamp}</td>
             <td style="font-weight:bold;">${row.nis}</td>
@@ -295,13 +328,11 @@ function renderTable(dataList) {
 
 function viewMedia(nama, jenisMedia, base64String) {
     if (!base64String) {
-        alert("Data media belum di-sync ke UI atau kosong.");
+        alert("Data gambar kosong atau belum di-sync.");
         return;
     }
-    
     document.getElementById('modalTitle').innerText = `Preview ${jenisMedia} - ${nama}`;
     const imgSrc = base64String.startsWith('data:image') ? base64String : `data:image/jpeg;base64,${base64String}`;
-    
     document.getElementById('modalImage').src = imgSrc;
     document.getElementById('imageModal').style.display = "block";
 }
@@ -315,8 +346,7 @@ function closeImageModal() {
 // INISIALISASI SAAT HALAMAN DIMUAT
 // =======================================================
 window.onload = () => {
-    // Mulai kamera otomatis
     startWebcam();
-    // Jika ada elemen tab, pastikan Enrollment yg aktif di awal
+    cekStatusAktivasiBackend(); // Validasi lisensi otomatis saat startup
     if(typeof switchTab === 'function') switchTab('enrollment');
 };
