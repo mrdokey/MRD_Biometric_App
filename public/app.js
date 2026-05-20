@@ -86,14 +86,11 @@ function triggerLocalScanner() {
     instructionEl.style.color = "#3b82f6";
 
     // Simulasi atau Panggil API Engine C#
-    // Ganti URL ini dengan endpoint scan fingerprint di engine kakak jika ada
     fetch('http://localhost:5000/api/scan_fingerprint') 
     .then(res => res.json())
     .then(data => {
-        // Asumsi data.base64 adalah hasil dari mesin U.are.U
         tempBase64 = data.base64 || "DUMMY_BASE64_RESULT"; 
         
-        // Tampilkan ke Preview
         const previewImg = document.getElementById('fp_preview_img');
         previewImg.src = "data:image/png;base64," + tempBase64;
         document.getElementById('fp_preview_container').style.display = 'block';
@@ -130,7 +127,7 @@ function confirmFingerprint() {
 
     if (currentStep < captureQueue.length) {
         showStepInstruction();
-        triggerLocalScanner(); // Otomatis trigger jari berikutnya
+        triggerLocalScanner(); 
     } else {
         finalizeWizard();
     }
@@ -142,11 +139,9 @@ function finalizeWizard() {
     document.getElementById('fp_instruction').style.color = "green";
     document.getElementById('fp_counter').innerText = "Progress: 30 / 30";
     
-    // Tampilkan tombol simpan & section retake
     document.getElementById('save_section').style.display = "block";
     document.getElementById('retake_section').style.display = "block";
     
-    // Isi Dropdown Retake
     const retakeSelect = document.getElementById('retake_select');
     retakeSelect.innerHTML = '<option value="">-- Pilih Jari untuk Review/Retake --</option>';
     captureQueue.forEach(task => {
@@ -156,7 +151,6 @@ function finalizeWizard() {
         retakeSelect.appendChild(option);
     });
 
-    // Tambahkan event listener agar saat pilih dropdown, gambar yang sudah tersimpan muncul
     retakeSelect.onchange = previewSelectedRetake;
 }
 
@@ -171,7 +165,6 @@ function previewSelectedRetake() {
         return;
     }
 
-    // Ambil data base64 yang sudah tersimpan di hidden input
     const savedData = document.getElementById(`fp_${selectedId}`).value;
     
     if(savedData) {
@@ -212,7 +205,7 @@ function retakeFingerprint() {
 }
 
 // =======================================================
-// MODUL 4: KOMPILASI & SUBMIT DATA KE C#
+// MODUL 4: KOMPILASI & SUBMIT DATA KE C# (UPDATE MAPPING JSON JARI)
 // =======================================================
 function simpanDataKeDatabase() {
     const getVal = (id) => document.getElementById(id) ? document.getElementById(id).value : '';
@@ -250,11 +243,28 @@ function simpanDataKeDatabase() {
         sidik_jari: {}
     };
 
+    // --- PERUBAHAN DI SINI: MAPPING ID (L1f) KE NAMA BACKEND (L1_kelingking.front) ---
     captureQueue.forEach(task => {
-        const val = getVal(`fp_${task.finger}_${task.angle}`);
-        if (!payload.sidik_jari[task.finger]) payload.sidik_jari[task.finger] = {};
-        payload.sidik_jari[task.finger][task.angle] = val;
+        const kodeJari = task.id.substring(0, 2); // "L1"
+        const kodeAngle = task.id.substring(2);   // "f"
+        
+        const mapNamaJari = {
+            'L1': 'L1_kelingking', 'L2': 'L2_jari_manis', 'L3': 'L3_tengah', 'L4': 'L4_telunjuk', 'L5': 'L5_jempol',
+            'R1': 'R1_jempol', 'R2': 'R2_telunjuk', 'R3': 'R3_tengah', 'R4': 'R4_jari_manis', 'R5': 'R5_kelingking'
+        };
+        const namaJariBackend = mapNamaJari[kodeJari];
+
+        const mapAngle = { 'f': 'front', 'l': 'left', 'r': 'right' };
+        const namaAngleBackend = mapAngle[kodeAngle];
+
+        const base64Value = getVal(`fp_${task.id}`);
+
+        if (!payload.sidik_jari[namaJariBackend]) {
+            payload.sidik_jari[namaJariBackend] = {};
+        }
+        payload.sidik_jari[namaJariBackend][namaAngleBackend] = base64Value;
     });
+    // -----------------------------------------------------------------------------
 
     // KIRIM KE C# REAL ENGINE
     fetch('http://localhost:5000/api/save', {
@@ -291,7 +301,6 @@ function simpanDataKeDatabase() {
 // MODUL 5: DATABASE VIEWER, LISENSI & MODAL IMAGE
 // =======================================================
 
-// REVISI: Fungsi Cek Status Aktivasi dari SQLite Backend C#
 function cekStatusAktivasiBackend() {
     fetch('http://localhost:5000/api/status')
     .then(res => res.json())
@@ -304,7 +313,7 @@ function cekStatusAktivasiBackend() {
                 statusEl.innerText = "✅ STATUS LISENSI: FULL VERSION AKTIF";
                 statusEl.style.color = "#16a34a";
             }
-            if(formGroup) formGroup.style.display = "none"; // Sembunyikan input token jika sukses
+            if(formGroup) formGroup.style.display = "none"; 
         } else {
             if(statusEl) {
                 statusEl.innerText = "⚠️ STATUS LISENSI: DEMO VERSION (Maksimal 10 Registrasi Siswa)";
@@ -314,13 +323,11 @@ function cekStatusAktivasiBackend() {
         }
     })
     .catch(() => {
-        // Fallback offline UI di HP sebelum C# terkoneksi
         const statusEl = document.getElementById('activation_status');
         if(statusEl) statusEl.innerText = "⚠️ Versi Demo (Belum Terkoneksi ke MRD_Engine.exe)";
     });
 }
 
-// REVISI: Fungsi kirim Token Aktivasi Ke C# Backend
 function eksekusiAktivasiToken() {
     const inputCode = document.getElementById('license_code').value;
     if(!inputCode) {
@@ -337,7 +344,7 @@ function eksekusiAktivasiToken() {
     .then(data => {
         if(data.status === "success") {
             alert(data.message);
-            window.location.reload(); // Refresh halaman untuk aktifkan mode penuh
+            window.location.reload(); 
         } else {
             alert(`Gagal Aktivasi: ${data.message}`);
         }
@@ -369,12 +376,10 @@ function renderTable(dataList) {
     }
 
     dataList.forEach(row => {
-        // Parse JSON biodata & kamera agar mudah diekstrak
         let bio = {}, cam = {};
         try { bio = JSON.parse(row.json_biodata); } catch(e){}
         try { cam = JSON.parse(row.json_kamera); } catch(e){}
 
-        // Encode seluruh baris agar bisa dikirim ke fungsi Edit
         const encodedRow = encodeURIComponent(JSON.stringify(row));
 
         const tr = document.createElement('tr');
@@ -398,7 +403,6 @@ function renderTable(dataList) {
     });
 }
 
-
 function viewMedia(nama, jenisMedia, base64String) {
     if (!base64String) {
         alert("Data gambar kosong atau belum di-sync.");
@@ -420,9 +424,10 @@ function closeImageModal() {
 // =======================================================
 window.onload = () => {
     startWebcam();
-    cekStatusAktivasiBackend(); // Validasi lisensi otomatis saat startup
+    cekStatusAktivasiBackend(); 
     if(typeof switchTab === 'function') switchTab('enrollment');
 };
+
 // =======================================================
 // FUNGSI EDIT DATA & KEMBALI KE FORM
 // =======================================================
@@ -430,14 +435,11 @@ function editDataSiswa(encodedData) {
     const data = JSON.parse(decodeURIComponent(encodedData));
     const bio = JSON.parse(data.json_biodata);
     const cam = JSON.parse(data.json_kamera);
-    const fp = JSON.parse(data.json_jari);
 
-    // 1. Pindah ke Tab Registrasi
     switchTab('enrollment');
 
-    // 2. Isi Form Teks
     document.getElementById('nis').value = data.nis;
-    document.getElementById('nis').readOnly = true; // KUNCI NIS agar folder tidak pecah
+    document.getElementById('nis').readOnly = true; 
     document.getElementById('nis').style.backgroundColor = "#e2e8f0";
     document.getElementById('nama').value = data.nama;
     document.getElementById('tgl_lahir').value = bio.tgl_lahir || '';
@@ -447,21 +449,17 @@ function editDataSiswa(encodedData) {
     document.getElementById('email').value = bio.email || '';
     document.getElementById('alamat').value = bio.alamat || '';
 
-    // 3. Tampilkan Preview Gambar Wajah/APD
     if (cam.face_front) {
         document.getElementById('preview_face_front').src = `data:image/jpeg;base64,${cam.face_front}`;
         document.getElementById('preview_face_front').style.display = 'block';
         document.getElementById('b64_face_front').value = cam.face_front;
     }
-    // Lakukan hal serupa untuk APD jika diperlukan
 
-    // 4. Ubah Tombol Simpan
     document.getElementById('save_section').style.display = "block";
     const btnSave = document.querySelector('#save_section button');
     btnSave.innerHTML = "💾 UPDATE DATA (RE-SAVE)";
-    btnSave.style.background = "#f59e0b"; // Warna orange tanda edit
+    btnSave.style.background = "#f59e0b"; 
     
-    // Auto Scroll ke Atas
     window.scrollTo(0, 0);
     alert(`Mode Edit Aktif untuk ${data.nama}.\nSilakan ubah data atau rekam ulang foto/jari, lalu klik Update Data di paling bawah.`);
 }
