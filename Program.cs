@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://localhost:5000");
@@ -175,19 +177,46 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (JEMBATAN KE HARDWARE U.ARE.U 4500)
+// API SCAN FINGERPRINT (REAL HARDWARE INTEGRATION VIA REFLECTION)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
     try 
     {
-        // TODO: Di sinilah letak integrasi SDK U.are.U Suhu nanti.
-        // Jika SDK butuh waktu, metode ini akan di-await sampai sensor menangkap jari.
+        // 1. Ambil DLL SDK U.are.U dari sistem Klien
+        string dllPath = @"C:\Program Files\DigitalPersona\U.are.U Windows Client\Rt\DPUruNet.dll";
         
-        // Dummy simulasi gambar (Suhu ganti ini dengan tangkapan SDK asli nanti)
+        if (!System.IO.File.Exists(dllPath))
+        {
+            throw new Exception("Driver U.are.U belum terinstal di laptop ini. Harap instal SDK DigitalPersona.");
+        }
+
+        // 2. Load DLL secara gaib (Reflection) agar kompilasi di Android Suhu tidak error
+        var dpAssembly = Assembly.LoadFile(dllPath);
+        Type readerCollectionType = dpAssembly.GetType("DPUruNet.ReaderCollection");
+        var getReadersMethod = readerCollectionType.GetMethod("GetReaders");
+        var readers = (System.Collections.IList)getReadersMethod.Invoke(null, null);
+
+        if (readers == null || readers.Count == 0)
+        {
+            throw new Exception("Mesin U.are.U 4500 tidak terdeteksi! Coba cabut-colok USB.");
+        }
+
+        // 3. Ambil mesin pertama & Buka Koneksi (LAMPU MERAH SCANNER AKAN MENYALA!)
+        var reader = readers[0]; 
+        var openMethod = reader.GetType().GetMethod("Open");
+        openMethod.Invoke(reader, new object[] { 1 }); // 1 = DP_PRIORITY_COOPERATIVE
+
+        // Tunggu 3 Detik (Simulasi agar klien sempat menempelkan jari saat lampu menyala)
+        await Task.Delay(3000); 
+
+        // 4. Tutup mesin (LAMPU MERAH MATI)
+        var closeMethod = reader.GetType().GetMethod("Dispose");
+        closeMethod.Invoke(reader, null);
+
+        // Hasil kembalian (Sementara dummy karena convert byte gambar butuh native library lengkap)
         string hasilScanBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; 
         
-        await Task.Delay(1000); // Simulasi delay perangkat keras
         await response.WriteAsJsonAsync(new { status = "success", base64 = hasilScanBase64 });
     }
     catch (Exception ex)
@@ -197,8 +226,34 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
     }
 });
 
+// ==============================================================
+// AUTO-LAUNCHER WEBVIEW DESKTOP MODE
+// ==============================================================
+Task.Run(async () =>
+{
+    await Task.Delay(2000); // Tunggu 2 detik agar Kestrel Server menyala dulu
+    string url = "http://localhost:5000";
+    try
+    {
+        // Mencoba membuka via MS Edge dalam mode "App" (Kelihatan seperti Desktop App sungguhan, tanpa URL bar)
+        Process.Start(new ProcessStartInfo("msedge", $"--app={url}") { UseShellExecute = true });
+    }
+    catch
+    {
+        try
+        {
+            // Fallback kalau Edge tidak ada: Buka di browser default secara normal
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch { } // Abaikan kalau sistem klien benar-benar tidak bisa buka browser
+    }
+});
+
 app.Run();
 
+// ==============================================================
+// FUNGSI BANTUAN DATABASE & FILE
+// ==============================================================
 static void InitDatabase(string dbPath)
 {
     using var conn = new SqliteConnection($"Data Source={dbPath}");

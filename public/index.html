@@ -61,6 +61,7 @@
     </div>
 
     <div id="enrollment" class="tab-content active">
+        
         <div class="card">
             <h2 class="card-title">Data Siswa</h2>
             <div class="grid-2">
@@ -114,16 +115,21 @@
                 <h3 id="fp_label" style="color:#1e293b; margin-bottom:5px;">Siap Memulai?</h3>
                 <p id="fp_instruction" style="color:#d97706; font-weight:bold; margin-bottom:15px;">Klik tombol di bawah untuk mulai scan</p>
                 
+                <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
+
+                <button id="btn_fp_capture" class="btn-primary" style="display:none; background:#3b82f6; width:100%; padding:15px; font-size:16px; margin-bottom:15px;" onclick="triggerLocalScanner()">
+                    📸 CAPTURE JARI SEKARANG
+                </button>
+                
                 <div id="fp_preview_container" style="display:none; margin-bottom: 20px; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; background: white;">
                     <p style="font-size: 12px; color: #64748b; margin-bottom: 8px;">HASIL SCAN TERAKHIR:</p>
                     <img id="fp_preview_img" style="width:140px; height:180px; border:2px solid var(--accent); border-radius:4px; background:#f8fafc; object-fit: contain;">
                     <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
-                        <button class="btn-primary" style="background:#16a34a; width:140px;" onclick="confirmFingerprint()">✅ OKE, LANJUT</button>
+                        <button class="btn-primary" style="background:#16a34a; width:140px;" onclick="confirmFingerprint()">✅ LANJUTKAN</button>
                         <button class="btn-primary" style="background:#dc2626; width:140px;" onclick="triggerLocalScanner()">🔄 SCAN ULANG</button>
                     </div>
                 </div>
 
-                <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
                 <button id="btn_fp_action" class="btn-dark" onclick="startFingerprintWizard()">Mulai Scan Sidik Jari</button>
             </div>
             
@@ -220,11 +226,13 @@
 
     <script src="app.js"></script>
     <script>
+        // Fungsi pindah Tab
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
             event.target.classList.add('active');
+            // Refresh lisensi otomatis saat pindah tab database
             if(tabId === 'database') cekStatusAktivasiBackend();
         }
     </script>

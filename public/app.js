@@ -63,7 +63,7 @@ function captureImage(type) {
 }
 
 // =======================================================
-// MODUL 2: WIZARD U.ARE.U 4500 (30x QUEUE) - WITH PREVIEW
+// MODUL 2: WIZARD U.ARE.U 4500 (SOP CAPTURE MANUAL)
 // =======================================================
 const fingers = ['L1','L2','L3','L4','L5','R1','R2','R3','R4','R5'];
 const angles = ['f', 'l', 'r']; // front, left, right
@@ -91,21 +91,31 @@ function getFingerLabel(f, a) {
 function startFingerprintWizard() {
     currentStep = 0;
     document.getElementById('btn_fp_action').style.display = 'none';
+    
+    // Hanya memunculkan instruksi dan tombol capture. JANGAN langsung scan.
     showStepInstruction();
-    triggerLocalScanner(); 
 }
 
 function showStepInstruction() {
     const task = captureQueue[currentStep];
-    document.getElementById('fp_label').innerText = `Perekaman: ${task.id}`;
-    document.getElementById('fp_instruction').innerText = `Tempelkan ${task.label}`;
+    document.getElementById('fp_label').innerText = `Antrean: ${task.id}`;
+    document.getElementById('fp_instruction').innerText = `Silakan tempelkan ${task.label}, lalu klik tombol Capture di bawah.`;
+    document.getElementById('fp_instruction').style.color = "#d97706";
     document.getElementById('fp_counter').innerText = `Progress: ${currentStep + 1} / 30`;
+    
+    // Tampilkan tombol Capture Manual & Sembunyikan Preview lama
+    document.getElementById('btn_fp_capture').style.display = 'block';
+    document.getElementById('fp_preview_container').style.display = 'none';
 }
 
-// Fungsi memanggil Hardware (C# bridge)
+// Fungsi memanggil Hardware (C# bridge) - Berjalan SETELAH klik Capture
 function triggerLocalScanner() {
+    // Sembunyikan tombol capture
+    document.getElementById('btn_fp_capture').style.display = 'none';
+    document.getElementById('fp_preview_container').style.display = 'none';
+
     const instructionEl = document.getElementById('fp_instruction');
-    instructionEl.innerText = "⏳ Menunggu Jari di Sensor...";
+    instructionEl.innerText = "⏳ Membaca Jari dari Sensor... Tahan jari Anda.";
     instructionEl.style.color = "#3b82f6";
 
     // Panggil API Engine C#
@@ -114,9 +124,11 @@ function triggerLocalScanner() {
     .then(data => {
         tempBase64 = data.base64 || "DUMMY_BASE64_RESULT"; 
         
-        const previewImg = document.getElementById('fp_preview_img');
-        previewImg.src = "data:image/png;base64," + tempBase64;
+        document.getElementById('fp_preview_img').src = "data:image/png;base64," + tempBase64;
         document.getElementById('fp_preview_container').style.display = 'block';
+        
+        // Pastikan tombol Lanjut/Ulang terlihat (berjaga-jaga jika disembunyikan oleh Retake)
+        document.getElementById('fp_preview_container').querySelector('div').style.display = 'flex';
         
         instructionEl.innerText = "Selesai Membaca! Silakan Review Gambar.";
         instructionEl.style.color = "#16a34a";
@@ -126,6 +138,7 @@ function triggerLocalScanner() {
         tempBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
         document.getElementById('fp_preview_img').src = "data:image/png;base64," + tempBase64;
         document.getElementById('fp_preview_container').style.display = 'block';
+        document.getElementById('fp_preview_container').querySelector('div').style.display = 'flex';
         instructionEl.innerText = "Review Hasil (Mode Simulasi Offline)";
     });
 }
@@ -149,8 +162,8 @@ function confirmFingerprint() {
     currentStep++;
 
     if (currentStep < captureQueue.length) {
-        showStepInstruction();
-        triggerLocalScanner(); 
+        // PERUBAHAN: Hanya panggil instruksi (memunculkan tombol capture baru), TIDAK langsung scan
+        showStepInstruction(); 
     } else {
         finalizeWizard();
     }
@@ -162,6 +175,8 @@ function finalizeWizard() {
     document.getElementById('fp_instruction').style.color = "green";
     document.getElementById('fp_counter').innerText = "Progress: 30 / 30";
     
+    // Pastikan tombol capture hilang di akhir
+    document.getElementById('btn_fp_capture').style.display = 'none';
     document.getElementById('save_section').style.display = "block";
     document.getElementById('retake_section').style.display = "block";
     
@@ -196,6 +211,8 @@ function previewSelectedRetake() {
         statusEl.innerText = `Menampilkan hasil scan: ${selectedId}`;
         statusEl.style.color = "#64748b";
         statusEl.style.display = "block";
+        // Sembunyikan tombol Lanjut/Ulang di mode retake
+        container.querySelector('div').style.display = 'none';
     }
 }
 
@@ -496,7 +513,7 @@ function hapusDataSiswa(nis, nama) {
 // INISIALISASI SAAT HALAMAN DIMUAT
 // =======================================================
 window.onload = () => {
-    // startWebcam(); // SUDAH DIHAPUS. Kamera baru menyala saat tombol 'Buka Kamera' diklik.
+    // Kamera baru menyala saat tombol 'Buka Kamera' diklik.
     cekStatusAktivasiBackend(); 
     if(typeof switchTab === 'function') switchTab('enrollment');
 };
