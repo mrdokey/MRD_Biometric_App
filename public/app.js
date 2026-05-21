@@ -1,42 +1,65 @@
 // =======================================================
-// CORE DOM ELEMENTS
+// CORE DOM ELEMENTS & WEBCAM STREAM
 // =======================================================
 const video = document.getElementById('webcam');
 const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d');
+let videoStream = null; // Menyimpan koneksi stream kamera agar bisa dimatikan
 
 // =======================================================
-// MODUL 1: WEBCAM (WAJAH & APD) - SUPPORT RETAKE OTOMATIS
+// MODUL 1: WEBCAM ON/OFF (POPUP MODAL)
 // =======================================================
-async function startWebcam() {
+async function openCameraModal() {
+    document.getElementById('cameraModal').style.display = 'flex';
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+        // Nyalakan kamera
+        videoStream = await navigator.mediaDevices.getUserMedia({ 
             video: { width: 640, height: 480 } 
         });
-        if(video) video.srcObject = stream;
+        if(video) video.srcObject = videoStream;
     } catch (err) {
         console.error("Gagal akses kamera: ", err);
         alert("Izinkan akses kamera di browser Anda!");
     }
 }
 
+function closeCameraModal() {
+    document.getElementById('cameraModal').style.display = 'none';
+    // Matikan stream dan lampu indikator kamera laptop
+    if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        videoStream = null;
+    }
+}
+
 function captureImage(type) {
     if(!video || !canvas) return;
+    const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     
     const base64Data = canvas.toDataURL('image/jpeg', 0.8);
     
+    // Tampilkan gambar ke layar form utama di belakang modal
     const previewEl = document.getElementById(`preview_${type}`);
     if(previewEl) {
         previewEl.src = base64Data;
         previewEl.style.display = 'block';
     }
     
+    // Simpan data bersih base64 ke input hidden
     const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, "");
     const inputEl = document.getElementById(`b64_${type}`);
     if(inputEl) inputEl.value = cleanBase64;
+
+    // Tampilkan animasi teks sukses di dalam modal kamera
+    const statusEl = document.getElementById('cam_status');
+    if(statusEl) {
+        const title = type === 'face_front' ? 'Wajah' : (type === 'apd_left' ? 'Telapak Kiri' : 'Telapak Kanan');
+        statusEl.innerText = `✅ Berhasil merekam foto ${title}!`;
+        statusEl.style.display = 'block';
+        setTimeout(() => statusEl.style.display = 'none', 2000); // Hilang setelah 2 detik
+    }
 }
 
 // =======================================================
@@ -85,7 +108,7 @@ function triggerLocalScanner() {
     instructionEl.innerText = "⏳ Menunggu Jari di Sensor...";
     instructionEl.style.color = "#3b82f6";
 
-    // Simulasi atau Panggil API Engine C#
+    // Panggil API Engine C#
     fetch('http://localhost:5000/api/scan_fingerprint') 
     .then(res => res.json())
     .then(data => {
@@ -99,11 +122,11 @@ function triggerLocalScanner() {
         instructionEl.style.color = "#16a34a";
     })
     .catch(err => {
-        // Fallback jika API belum siap (Dummy untuk Testing)
+        // Fallback jika API belum siap
         tempBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
         document.getElementById('fp_preview_img').src = "data:image/png;base64," + tempBase64;
         document.getElementById('fp_preview_container').style.display = 'block';
-        instructionEl.innerText = "Review Hasil (Mode Simulasi)";
+        instructionEl.innerText = "Review Hasil (Mode Simulasi Offline)";
     });
 }
 
@@ -121,7 +144,7 @@ function confirmFingerprint() {
     }
     hiddenInput.value = tempBase64;
 
-    // Sembunyikan preview dan lanjut
+    // Sembunyikan preview dan lanjut ke jari berikutnya
     document.getElementById('fp_preview_container').style.display = 'none';
     currentStep++;
 
@@ -205,7 +228,7 @@ function retakeFingerprint() {
 }
 
 // =======================================================
-// MODUL 4: KOMPILASI & SUBMIT DATA KE C# (UPDATE MAPPING JSON JARI)
+// MODUL 4: KOMPILASI & SUBMIT DATA KE C#
 // =======================================================
 function simpanDataKeDatabase() {
     const getVal = (id) => document.getElementById(id) ? document.getElementById(id).value : '';
@@ -243,7 +266,7 @@ function simpanDataKeDatabase() {
         sidik_jari: {}
     };
 
-    // --- PERUBAHAN DI SINI: MAPPING ID (L1f) KE NAMA BACKEND (L1_kelingking.front) ---
+    // MAPPING ID (L1f) KE NAMA BACKEND (L1_kelingking.front)
     captureQueue.forEach(task => {
         const kodeJari = task.id.substring(0, 2); // "L1"
         const kodeAngle = task.id.substring(2);   // "f"
@@ -264,7 +287,6 @@ function simpanDataKeDatabase() {
         }
         payload.sidik_jari[namaJariBackend][namaAngleBackend] = base64Value;
     });
-    // -----------------------------------------------------------------------------
 
     // KIRIM KE C# REAL ENGINE
     fetch('http://localhost:5000/api/save', {
@@ -300,7 +322,6 @@ function simpanDataKeDatabase() {
 // =======================================================
 // MODUL 5: DATABASE VIEWER, LISENSI & MODAL IMAGE
 // =======================================================
-
 function cekStatusAktivasiBackend() {
     fetch('http://localhost:5000/api/status')
     .then(res => res.json())
@@ -420,15 +441,6 @@ function closeImageModal() {
 }
 
 // =======================================================
-// INISIALISASI SAAT HALAMAN DIMUAT
-// =======================================================
-window.onload = () => {
-    startWebcam();
-    cekStatusAktivasiBackend(); 
-    if(typeof switchTab === 'function') switchTab('enrollment');
-};
-
-// =======================================================
 // FUNGSI EDIT DATA & KEMBALI KE FORM
 // =======================================================
 function editDataSiswa(encodedData) {
@@ -479,3 +491,12 @@ function hapusDataSiswa(nis, nama) {
         } else alert(`Gagal: ${data.message}`);
     });
 }
+
+// =======================================================
+// INISIALISASI SAAT HALAMAN DIMUAT
+// =======================================================
+window.onload = () => {
+    // startWebcam(); // SUDAH DIHAPUS. Kamera baru menyala saat tombol 'Buka Kamera' diklik.
+    cekStatusAktivasiBackend(); 
+    if(typeof switchTab === 'function') switchTab('enrollment');
+};

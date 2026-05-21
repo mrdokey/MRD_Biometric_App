@@ -174,6 +174,29 @@ app.MapPost("/api/save", async (HttpContext context) =>
     catch (Exception ex) { context.Response.StatusCode = 500; await context.Response.WriteAsJsonAsync(new { status = "error", message = ex.Message }); }
 });
 
+// ==============================================================
+// API SCAN FINGERPRINT (JEMBATAN KE HARDWARE U.ARE.U 4500)
+// ==============================================================
+app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
+{
+    try 
+    {
+        // TODO: Di sinilah letak integrasi SDK U.are.U Suhu nanti.
+        // Jika SDK butuh waktu, metode ini akan di-await sampai sensor menangkap jari.
+        
+        // Dummy simulasi gambar (Suhu ganti ini dengan tangkapan SDK asli nanti)
+        string hasilScanBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; 
+        
+        await Task.Delay(1000); // Simulasi delay perangkat keras
+        await response.WriteAsJsonAsync(new { status = "success", base64 = hasilScanBase64 });
+    }
+    catch (Exception ex)
+    {
+        response.StatusCode = 500;
+        await response.WriteAsJsonAsync(new { status = "error", message = ex.Message });
+    }
+});
+
 app.Run();
 
 static void InitDatabase(string dbPath)

@@ -17,32 +17,25 @@
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
-        /* REVISI: Tambah padding-bottom agar konten tidak tertutup sticky footer */
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); padding: 20px; padding-bottom: 80px; }
         
-        /* Navigation / Tabs */
         .nav-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border); padding-bottom: 10px; }
         .nav-btn { padding: 10px 20px; border: none; background: transparent; font-size: 16px; font-weight: bold; color: #64748b; cursor: pointer; border-radius: var(--radius); transition: 0.3s; }
         .nav-btn.active { background: var(--primary); color: #fff; }
         .tab-content { display: none; }
         .tab-content.active { display: block; }
 
-        /* Layout System */
         .card { background: var(--surface); padding: 20px; border-radius: var(--radius); box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; border: 1px solid var(--border); }
         .card-title { border-left: 4px solid var(--accent); padding-left: 10px; margin-bottom: 15px; color: var(--primary); }
         .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; }
         .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
 
-        /* Forms & Inputs */
         .input-group { display: flex; flex-direction: column; gap: 5px; }
         label { font-size: 13px; font-weight: 600; color: #475569; }
         input, select, textarea { padding: 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; width: 100%; outline: none; transition: border 0.3s; }
         input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 
-        /* Media & Buttons */
         .camera-box { border: 2px dashed #cbd5e1; padding: 15px; text-align: center; border-radius: var(--radius); background: #f1f5f9; }
-        video { width: 100%; border-radius: 4px; background: #000; margin-bottom: 10px; }
-        canvas { display: none; }
         .preview-img { width: 100%; display: none; margin-top: 10px; border: 1px solid var(--primary); border-radius: 4px; }
         
         button { padding: 10px 15px; border: none; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s; }
@@ -50,25 +43,13 @@
         .btn-primary:hover { background: #2563eb; }
         .btn-dark { background: var(--primary); color: white; font-size: 16px; padding: 15px; width: 100%; }
         
-        /* Table Styles */
         .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; min-width: 1200px; }
         .data-table th, .data-table td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left; }
         .data-table th { background: #f8fafc; font-weight: 600; color: var(--primary); }
 
-        /* REVISI: STICKY FOOTER STYLES */
         .footer {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background: var(--primary);
-            color: #cbd5e1;
-            text-align: center;
-            padding: 15px;
-            font-size: 14px;
-            border-top: 3px solid var(--accent);
-            z-index: 1000;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
+            position: fixed; bottom: 0; left: 0; width: 100%; background: var(--primary); color: #cbd5e1;
+            text-align: center; padding: 15px; font-size: 14px; border-top: 3px solid var(--accent); z-index: 1000; box-shadow: 0 -2px 10px rgba(0,0,0,0.15);
         }
     </style>
 </head>
@@ -101,25 +82,26 @@
         </div>
 
         <div class="card">
-            <h2 class="card-title">Capture Kamera (Webcam)</h2>
-            <p style="font-size:13px; color:#64748b; margin-bottom:15px;">*Jika gambar kurang pas, klik tombol capture lagi untuk mengambil ulang (timpa foto).</p>
-            <div class="grid-3">
+            <h2 class="card-title">Kamera (Wajah & APD)</h2>
+            <p style="font-size:13px; color:#64748b; margin-bottom:15px;">*Kamera dalam keadaan non-aktif (Off) untuk menghemat memori. Klik Buka Kamera untuk merekam Wajah dan APD.</p>
+            
+            <button class="btn-primary" style="background: #10b981; font-size: 16px; padding: 15px; margin-bottom: 20px;" onclick="openCameraModal()">
+                📹 BUKA KAMERA WEBCAM
+            </button>
+
+            <div class="grid-3" id="kamera_preview_section">
                 <div class="camera-box">
-                    <video id="webcam" autoplay playsinline></video>
-                    <canvas id="canvas"></canvas>
-                    <button class="btn-primary" onclick="captureImage('face_front')">📸 Wajah</button>
-                    <button class="btn-primary" onclick="captureImage('apd_left')">📸 Telapak Kiri</button>
-                    <button class="btn-primary" onclick="captureImage('apd_right')">📸 Telapak Kanan</button>
-                </div>
-                <div class="camera-box">
-                    <h4 style="margin-bottom:10px;">Hasil Wajah & Kiri</h4>
+                    <h4 style="margin-bottom:10px;">Hasil Wajah</h4>
                     <img id="preview_face_front" class="preview-img">
                     <input type="hidden" id="b64_face_front">
+                </div>
+                <div class="camera-box">
+                    <h4 style="margin-bottom:10px;">Hasil Telapak Kiri</h4>
                     <img id="preview_apd_left" class="preview-img">
                     <input type="hidden" id="b64_apd_left">
                 </div>
                 <div class="camera-box">
-                    <h4 style="margin-bottom:10px;">Hasil Kanan</h4>
+                    <h4 style="margin-bottom:10px;">Hasil Telapak Kanan</h4>
                     <img id="preview_apd_right" class="preview-img">
                     <input type="hidden" id="b64_apd_right">
                 </div>
@@ -127,44 +109,42 @@
         </div>
 
         <div class="card">
-    <h2 class="card-title">Perekaman Sidik Jari (U.are.U 4500)</h2>
-    <div class="camera-box" style="padding:20px;">
-        <h3 id="fp_label" style="color:#1e293b; margin-bottom:5px;">Siap Memulai?</h3>
-        <p id="fp_instruction" style="color:#d97706; font-weight:bold; margin-bottom:15px;">Klik tombol di bawah untuk mulai scan</p>
-        
-        <!-- AREA PREVIEW BARU -->
-        <div id="fp_preview_container" style="display:none; margin-bottom: 20px; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; background: white;">
-            <p style="font-size: 12px; color: #64748b; margin-bottom: 8px;">HASIL SCAN TERAKHIR:</p>
-            <img id="fp_preview_img" style="width:140px; height:180px; border:2px solid var(--accent); border-radius:4px; background:#f8fafc; object-fit: contain;">
-            <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
-                <button class="btn-primary" style="background:#16a34a; width:140px;" onclick="confirmFingerprint()">✅ OKE, LANJUT</button>
-                <button class="btn-primary" style="background:#dc2626; width:140px;" onclick="triggerLocalScanner()">🔄 SCAN ULANG</button>
+            <h2 class="card-title">Perekaman Sidik Jari (U.are.U 4500)</h2>
+            <div class="camera-box" style="padding:20px;">
+                <h3 id="fp_label" style="color:#1e293b; margin-bottom:5px;">Siap Memulai?</h3>
+                <p id="fp_instruction" style="color:#d97706; font-weight:bold; margin-bottom:15px;">Klik tombol di bawah untuk mulai scan</p>
+                
+                <div id="fp_preview_container" style="display:none; margin-bottom: 20px; border: 1px solid #cbd5e1; padding: 15px; border-radius: 8px; background: white;">
+                    <p style="font-size: 12px; color: #64748b; margin-bottom: 8px;">HASIL SCAN TERAKHIR:</p>
+                    <img id="fp_preview_img" style="width:140px; height:180px; border:2px solid var(--accent); border-radius:4px; background:#f8fafc; object-fit: contain;">
+                    <div style="margin-top:15px; display:flex; gap:10px; justify-content:center;">
+                        <button class="btn-primary" style="background:#16a34a; width:140px;" onclick="confirmFingerprint()">✅ OKE, LANJUT</button>
+                        <button class="btn-primary" style="background:#dc2626; width:140px;" onclick="triggerLocalScanner()">🔄 SCAN ULANG</button>
+                    </div>
+                </div>
+
+                <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
+                <button id="btn_fp_action" class="btn-dark" onclick="startFingerprintWizard()">Mulai Scan Sidik Jari</button>
+            </div>
+            
+            <div id="fp_data_container" style="display:none;"></div>
+
+            <div id="retake_section" style="display:none; margin-top: 20px; background:#f1f5f9; padding:20px; border-radius:var(--radius); border:1px solid #cbd5e1;">
+                <h4 style="margin-bottom:10px; color:#1e293b;">Ulangi Jari Tertentu (Opsional)</h4>
+                <div class="input-group">
+                    <select id="retake_select" style="padding:10px; font-weight:bold;"></select>
+                </div>
+                <button class="btn-primary" style="margin-top:10px; background:#f59e0b;" onclick="retakeFingerprint()">🔄 Ulangi Scan Jari Terpilih</button>
+                <p id="retake_status" style="color:#16a34a; font-weight:bold; font-size:14px; margin-top:10px; display:none;"></p>
+            </div>
+
+            <div id="save_section" style="display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; text-align: center;">
+                <p style="color: #16a34a; font-weight: bold; margin-bottom: 10px;">✅ Seluruh Data Siap Disimpan</p>
+                <button class="btn-primary" style="background: #16a34a; font-size: 18px; padding: 15px;" onclick="simpanDataKeDatabase()">
+                    💾 SIMPAN DATA REGISTRASI
+                </button>
             </div>
         </div>
-
-        <h4 id="fp_counter" style="color:#64748b; margin-bottom:20px;">Progress: 0 / 30</h4>
-        <button id="btn_fp_action" class="btn-dark" onclick="startFingerprintWizard()">Mulai Scan Sidik Jari</button>
-    </div>
-    
-    <div id="fp_data_container" style="display:none;"></div>
-
-    <!-- Section Retake Tetap Ada untuk Koreksi di Akhir -->
-    <div id="retake_section" style="display:none; margin-top: 20px; background:#f1f5f9; padding:20px; border-radius:var(--radius); border:1px solid #cbd5e1;">
-        <h4 style="margin-bottom:10px; color:#1e293b;">Ulangi Jari Tertentu (Opsional)</h4>
-        <div class="input-group">
-            <select id="retake_select" style="padding:10px; font-weight:bold;"></select>
-        </div>
-        <button class="btn-primary" style="margin-top:10px; background:#f59e0b;" onclick="retakeFingerprint()">🔄 Ulangi Scan Jari Terpilih</button>
-        <p id="retake_status" style="color:#16a34a; font-weight:bold; font-size:14px; margin-top:10px; display:none;"></p>
-    </div>
-
-    <div id="save_section" style="display: none; margin-top: 20px; border-top: 1px solid var(--border); padding-top: 20px; text-align: center;">
-        <p style="color: #16a34a; font-weight: bold; margin-bottom: 10px;">✅ Seluruh Data Siap Disimpan</p>
-        <button class="btn-primary" style="background: #16a34a; font-size: 18px; padding: 15px;" onclick="simpanDataKeDatabase()">
-            💾 SIMPAN DATA REGISTRASI
-        </button>
-    </div>
-</div>
     </div>
 
     <div id="database" class="tab-content">
@@ -180,9 +160,7 @@
         <div class="card">
             <h2 class="card-title">Database Lokal (SQLite)</h2>
             <p style="font-size:14px; color:#64748b; margin-bottom:15px;">Daftar siswa yang telah direkam pada mesin ini.</p>
-            
             <button class="btn-primary" style="width:auto; margin-bottom:15px; background:#10b981;" onclick="loadDataTersimpan()">🔄 Refresh Data</button>
-
             <div style="overflow-x:auto;">
                 <table class="data-table">
                     <thead>
@@ -198,14 +176,31 @@
                         </tr>
                     </thead>
                     <tbody id="table_body_siswa">
-                        <tr>
-                            <td colspan="8" style="text-align:center; color:#94a3b8; padding:20px;">
-                                Klik "Refresh Data" untuk memuat...
-                            </td>
-                        </tr>
+                        <tr><td colspan="8" style="text-align:center; color:#94a3b8; padding:20px;">Klik "Refresh Data" untuk memuat...</td></tr>
                     </tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <div id="cameraModal" style="display:none; position:fixed; z-index:2000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.95); padding:20px; flex-direction:column; align-items:center; justify-content:center;">
+        <div style="background:#fff; width:100%; max-width:700px; padding:20px; border-radius:8px; text-align:center; position:relative;">
+            <span onclick="closeCameraModal()" style="position:absolute; right:20px; top:15px; font-size:28px; cursor:pointer; color:#ef4444; font-weight:bold;">&times;</span>
+            
+            <h3 style="margin-bottom:15px; color:#1e293b;">Perekaman Foto</h3>
+            
+            <video id="webcam" autoplay playsinline style="width:100%; max-height:50vh; background:#000; border-radius:8px; margin-bottom:15px;"></video>
+            <canvas id="canvas" style="display:none;"></canvas>
+            
+            <p id="cam_status" style="color:#10b981; font-weight:bold; margin-bottom:15px; display:none;"></p>
+            
+            <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+                <button class="btn-primary" style="width:auto; flex:1;" onclick="captureImage('face_front')">📸 Wajah</button>
+                <button class="btn-primary" style="width:auto; flex:1;" onclick="captureImage('apd_left')">📸 Telapak Kiri</button>
+                <button class="btn-primary" style="width:auto; flex:1;" onclick="captureImage('apd_right')">📸 Telapak Kanan</button>
+            </div>
+            
+            <button class="btn-dark" style="margin-top:15px; background:#ef4444;" onclick="closeCameraModal()">✅ Selesai & Tutup Kamera</button>
         </div>
     </div>
 
@@ -230,11 +225,7 @@
             document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(tabId).classList.add('active');
             event.target.classList.add('active');
-            
-            // Auto refresh status lisensi saat pindah tab database
-            if(tabId === 'database') {
-                cekStatusAktivasiBackend();
-            }
+            if(tabId === 'database') cekStatusAktivasiBackend();
         }
     </script>
 </body>
