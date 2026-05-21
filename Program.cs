@@ -227,28 +227,33 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 });
 
 // ==============================================================
-// AUTO-LAUNCHER WEBVIEW DESKTOP MODE
+// AUTO-LAUNCHER WEBVIEW DESKTOP MODE (VERSI ANTI AUTO-CLOSE)
 // ==============================================================
-Task.Run(async () =>
+app.Lifetime.ApplicationStarted.Register(() =>
 {
-    await Task.Delay(2000); // Tunggu 2 detik agar Kestrel Server menyala dulu
-    string url = "http://localhost:5000";
-    try
+    // Jalankan Asynchronous Task SETELAH server Kestrel terkonfirmasi berjalan
+    Task.Run(async () =>
     {
-        // Mencoba membuka via MS Edge dalam mode "App" (Kelihatan seperti Desktop App sungguhan, tanpa URL bar)
-        Process.Start(new ProcessStartInfo("msedge", $"--app={url}") { UseShellExecute = true });
-    }
-    catch
-    {
+        await Task.Delay(1000); // Tunggu ekstra 1 detik memastikan port 5000 benar-benar sudah listening
+        string url = "http://localhost:5000";
         try
         {
-            // Fallback kalau Edge tidak ada: Buka di browser default secara normal
-            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            // Buka Edge dalam mode Aplikasi Desktop Native
+            Process.Start(new ProcessStartInfo("msedge", $"--app={url}") { UseShellExecute = true });
         }
-        catch { } // Abaikan kalau sistem klien benar-benar tidak bisa buka browser
-    }
+        catch
+        {
+            try
+            {
+                // Fallback: Jika Edge tidak ada, buka browser default biasa
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            }
+            catch { }
+        }
+    });
 });
 
+// Run server dan MENGUNCI TERMINAL agar tidak langsung mati (auto-close)
 app.Run();
 
 // ==============================================================
