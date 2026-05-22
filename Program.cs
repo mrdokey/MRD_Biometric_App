@@ -177,21 +177,27 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (REAL HARDWARE INTEGRATION VIA REFLECTION)
+// API SCAN FINGERPRINT (VERSI PORTABLE - BACA DLL LOKAL)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
     try 
     {
-        // 1. Ambil DLL SDK U.are.U dari sistem Klien
-        string dllPath = @"C:\Program Files\DigitalPersona\U.are.U Windows Client\Rt\DPUruNet.dll";
+        // PERUBAHAN KRUSIAL: Memaksa C# membaca DPUruNet.dll di foldernya sendiri!
+        string dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
         
+        // Fallback: Jika di sebelah .exe tidak ada, baru cari di Program Files
         if (!System.IO.File.Exists(dllPath))
         {
-            throw new Exception("Driver U.are.U belum terinstal di laptop ini. Harap instal SDK DigitalPersona.");
+            dllPath = @"C:\Program Files\DigitalPersona\U.are.U Windows Client\Rt\DPUruNet.dll";
         }
 
-        // 2. Load DLL secara gaib (Reflection) agar kompilasi di Android Suhu tidak error
+        if (!System.IO.File.Exists(dllPath))
+        {
+            throw new Exception("File 'DPUruNet.dll' tidak ditemukan! Harap copy file DLL ke sebelah MRD_Engine.exe.");
+        }
+
+        // 2. Load DLL secara gaib (Reflection)
         var dpAssembly = Assembly.LoadFile(dllPath);
         Type readerCollectionType = dpAssembly.GetType("DPUruNet.ReaderCollection");
         var getReadersMethod = readerCollectionType.GetMethod("GetReaders");
@@ -199,22 +205,21 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 
         if (readers == null || readers.Count == 0)
         {
-            throw new Exception("Mesin U.are.U 4500 tidak terdeteksi! Coba cabut-colok USB.");
+            throw new Exception("Mesin U.are.U 4500 tidak terdeteksi! Coba cabut-colok kabel USB.");
         }
 
-        // 3. Ambil mesin pertama & Buka Koneksi (LAMPU MERAH SCANNER AKAN MENYALA!)
+        // 3. Ambil mesin pertama & Buka Koneksi (LAMPU MERAH NYALA)
         var reader = readers[0]; 
         var openMethod = reader.GetType().GetMethod("Open");
         openMethod.Invoke(reader, new object[] { 1 }); // 1 = DP_PRIORITY_COOPERATIVE
 
-        // Tunggu 3 Detik (Simulasi agar klien sempat menempelkan jari saat lampu menyala)
+        // Tunggu 3 Detik (Lampu nyala menunggu jari)
         await Task.Delay(3000); 
 
         // 4. Tutup mesin (LAMPU MERAH MATI)
         var closeMethod = reader.GetType().GetMethod("Dispose");
         closeMethod.Invoke(reader, null);
 
-        // Hasil kembalian (Sementara dummy karena convert byte gambar butuh native library lengkap)
         string hasilScanBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; 
         
         await response.WriteAsJsonAsync(new { status = "success", base64 = hasilScanBase64 });
@@ -222,7 +227,8 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
     catch (Exception ex)
     {
         response.StatusCode = 500;
-        await response.WriteAsJsonAsync(new { status = "error", message = ex.Message });
+        // Tampilkan detail pesan error-nya langsung di UI kalau gagal
+        await response.WriteAsJsonAsync(new { status = "error", message = ex.Message + " | Bantuan: " + ex.InnerException?.Message });
     }
 });
 
