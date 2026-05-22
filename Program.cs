@@ -183,18 +183,19 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
     try 
     {
-        // PERUBAHAN KRUSIAL: Memaksa C# membaca DPUruNet.dll di foldernya sendiri!
-        string dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
+                // PERUBAHAN KRUSIAL: Memaksa C# membaca DPUruNet.dll dari lokasi absolut RTE yang benar
+        string dllPath = @"C:\Program Files\DigitalPersona\U.are.U RTE\Windows\Lib\.NET\DPUruNet.dll";
         
-        // Fallback: Jika di sebelah .exe tidak ada, baru cari di Program Files
+        // Fallback: Jika di lokasi RTE tidak ada, cari di folder aplikasi (untuk mode portable)
         if (!System.IO.File.Exists(dllPath))
         {
-            dllPath = @"C:\Program Files\DigitalPersona\U.are.U Windows Client\Rt\DPUruNet.dll";
+            dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
         }
 
+        // Cek terakhir: Jika di kedua lokasi tetap tidak ada, lempar error yang jelas
         if (!System.IO.File.Exists(dllPath))
         {
-            throw new Exception("File 'DPUruNet.dll' tidak ditemukan! Harap copy file DLL ke sebelah MRD_Engine.exe.");
+            throw new Exception("File 'DPUruNet.dll' tidak ditemukan! Pastikan sudah terinstal di folder RTE atau sudah dicopy ke sebelah MRD_Engine.exe.");
         }
 
         // 2. Load DLL secara gaib (Reflection)
