@@ -177,35 +177,24 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI ANTI-CASTING ERROR & PATH RTE)
+// API SCAN FINGERPRINT (JURUS REFLECTION MUTLAK - ANTI GAGAL)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
     try 
     {
-        // 1. Path Absolut RTE
         string dllPath = @"C:\Program Files\DigitalPersona\U.are.U RTE\Windows\Lib\.NET\DPUruNet.dll";
-        
-        // 2. Fallback Path Portable
         if (!System.IO.File.Exists(dllPath))
-        {
             dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
-        }
 
-        // 3. Validasi
         if (!System.IO.File.Exists(dllPath))
-        {
-            throw new Exception("File 'DPUruNet.dll' tidak ditemukan! Pastikan sudah terinstal di folder RTE atau sudah dicopy ke sebelah MRD_Engine.exe.");
-        }
+            throw new Exception("File DLL tidak ditemukan!");
 
-        // 4. Load DLL (Reflection Murni Tanpa Casting)
         var dpAssembly = Assembly.LoadFile(dllPath);
         Type readerCollectionType = dpAssembly.GetType("DPUruNet.ReaderCollection");
         
-        // Ambil object Readers
         var readersObj = readerCollectionType.GetMethod("GetReaders").Invoke(null, null);
 
-        // Baca jumlah mesin
         var countProp = readersObj.GetType().GetProperty("Count");
         int count = (int)countProp.GetValue(readersObj);
 
@@ -218,22 +207,27 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
         var itemProp = readersObj.GetType().GetProperty("Item");
         var reader = itemProp.GetValue(readersObj, new object[] { 0 });
 
-        // Ubah prioritas koneksi menggunakan tipe bawaan pabriknya
-        Type prioType = dpAssembly.GetType("DPUruNet.Constants+Priorities");
+        // Ambil fungsi Open
+        var openMethod = reader.GetType().GetMethod("Open");
+
+        // JURUS MUTLAK: Tanya langsung ke fungsi 'Open', apa tipe parameter yang dia minta!
+        // (Kita tidak perlu lagi menebak nama Namespace / Class Enum-nya)
+        Type prioType = openMethod.GetParameters()[0].ParameterType;
+
+        // Konversi angka 1 (Priority) menjadi tipe Enum dinamis tersebut
         object priority = Enum.ToObject(prioType, 1);
 
-        // Buka Koneksi ke Scanner (Lampu akan menyala)
-        var openMethod = reader.GetType().GetMethod("Open");
+        // Buka Koneksi (LAMPU MERAH MENYALA!)
         openMethod.Invoke(reader, new object[] { priority });
 
-        // Tunggu 3 Detik (Simulasi menunggu jari / agar lampu nyala terlihat)
+        // Tunggu 3 Detik (Lampu terlihat menyala oleh customer)
         await Task.Delay(3000); 
 
-        // Tutup Koneksi (Lampu mati)
+        // Tutup Koneksi
         var disposeMethod = reader.GetType().GetMethod("Dispose");
         disposeMethod.Invoke(reader, null);
 
-        // Kirim dummy image agar tidak error saat dirender ke UI
+        // Kembalikan base64 dummy agar web jalan terus
         string hasilScanBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; 
         
         await response.WriteAsJsonAsync(new { status = "success", base64 = hasilScanBase64 });
