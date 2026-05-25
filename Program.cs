@@ -9,7 +9,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
-using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://localhost:5000");
@@ -178,7 +177,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI RADAR POLLING 1 DETIK)
+// API SCAN FINGERPRINT (VERSI BERSIH & EKSTRAK LANGSUNG)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -201,7 +200,6 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
         var openMethod = reader.GetType().GetMethod("Open");
         Type prioType = openMethod.GetParameters()[0].ParameterType;
         
-        // Mode Cooperative (1) lebih stabil untuk API Background
         object priority = Enum.ToObject(prioType, 1); 
         int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
         if (openCode != 0) 
@@ -224,67 +222,54 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             {
                 if (method.Name == "Capture" && method.GetParameters().Length == 4) { captureMethod = method; break; }
             }
-            if (captureMethod == null) throw new Exception("Fungsi Capture tidak ditemukan.");
 
             var pInfos = captureMethod.GetParameters();
             
-            // PAKSA format 0 (Raw Image) agar sensor tidak menolak jari yang sedikit cacat
-            object fidFormat = Enum.ToObject(pInfos[0].ParameterType, 0); 
-            object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
+            // --- JURUS EKSPLISIT: Jangan tebak index, paksa cari nama ANSI dan DEFAULT! ---
+            object fidFormat = null;
+            try { fidFormat = Enum.Parse(pInfos[0].ParameterType, "ANSI"); } 
+            catch { fidFormat = Enum.GetValues(pInfos[0].ParameterType).GetValue(0); }
+
+            object captureProc = null;
+            try { captureProc = Enum.Parse(pInfos[1].ParameterType, "DP_IMG_PROC_DEFAULT"); }
+            catch { captureProc = Enum.GetValues(pInfos[1].ParameterType).GetValue(0); }
             
-            // --- 2. TEKNIK RADAR POLLING (1 Detik x 20 Kali) ---
-            object finalCaptureResult = null;
-            bool isCaptured = false;
-            int lastQuality = -1;
-
-            // Kita tembak sensor 20 kali, masing-masing selama 1 detik (Total 20 detik maksimal)
-            for (int i = 0; i < 20; i++)
+            // --- 2. JALANKAN DI BACKGROUND TASK (Mencegah pemblokiran oleh ASP.NET) ---
+            object captureResult = await Task.Run(() => 
             {
-                // Timeout 1000ms (1 Detik)
-                object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 1000, res });
-                
-                int resultCode = Convert.ToInt32(captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult));
-                
-                if (resultCode == 0) // Jika eksekusi berhasil
-                {
-                    object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
-                    int qualityCode = Convert.ToInt32(qualityObj);
-                    
-                    if (qualityCode == 0) // 0 = GOOD (Gambar Berhasil Diambil!)
-                    {
-                        finalCaptureResult = captureResult;
-                        isCaptured = true;
-                        break; // Langsung KELUAR dari putaran 20 detik!
-                    }
-                    else if (qualityCode != 1) // 1 = Timeout. Jika selain 1 & 0, artinya ada jari tapi miring/basah
-                    {
-                        lastQuality = qualityCode; // Simpan errornya, lalu terus ulangi putaran
-                    }
-                }
-                
-                // Beri nafas ke USB bus selama 50ms sebelum nembak lagi
-                await Task.Delay(50);
-            }
+                // Tunggu 20 Detik. Karena di dalam Task.Run, dia tidak akan macet!
+                return captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
+            });
 
-            if (!isCaptured)
+            // --- 3. BACA HASIL DENGAN CARA BARU (Tanpa peduli status Quality!) ---
+            object resultCodeObj = captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult);
+            object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
+            
+            string resStr = resultCodeObj.ToString(); // Menghasilkan teks asli (Misal: DP_SUCCESS)
+            string qualStr = qualityObj.ToString();   // Menghasilkan teks asli (Misal: DP_QUALITY_TIMED_OUT)
+
+            // AMBIL DATA GAMBAR
+            object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
+            
+            // Jika data beneran kosong, baru kita komplain
+            if (dataObj == null) 
             {
-                if (lastQuality != -1) throw new Exception($"Jari terdeteksi tapi kualitas gambar sangat buruk/miring. Lap kaca scanner dengan tisu. (Kode: {lastQuality})");
-                throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner.");
+                throw new Exception($"Data Kosong! (Status: {resStr} | Quality: {qualStr})");
             }
-
-            // --- 3. EKSTRAK GAMBAR MENTAH ---
-            object dataObj = finalCaptureResult.GetType().GetProperty("Data").GetValue(finalCaptureResult);
-            if (dataObj == null) throw new Exception("Data sidik jari kosong!");
 
             var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
-            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
+            if (viewsObj == null || viewsObj.Count == 0) 
+            {
+                throw new Exception($"Frame Kosong! (Status: {resStr} | Quality: {qualStr})");
+            }
 
+            // JIKA SAMPAI SINI, BERARTI GAMBAR ADA! Langsung ekstrak!
             var fivObj = viewsObj[0]; 
             int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
             int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
             
             var rawProp = fivObj.GetType().GetProperty("RawImage") ?? fivObj.GetType().GetProperty("Bytes") ?? fivObj.GetType().GetProperty("Data");
-            if (rawProp == null) throw new Exception("Properti byte gambar gagal dibaca.");
+            if (rawProp == null) throw new Exception("Property byte gambar gagal dibaca.");
 
             byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
 
