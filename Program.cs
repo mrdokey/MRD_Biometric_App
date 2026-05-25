@@ -178,120 +178,132 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI JURUS STA THREAD - ANTI BUTA)
+// API SCAN FINGERPRINT (VERSI RADAR POLLING 1 DETIK)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
-    string finalBase64 = "";
-    Exception backgroundEx = null;
-
-    // KITA BUNGKUS KE DALAM THREAD KHUSUS AGAR C# BISA MENDENGAR SINYAL USB
-    Thread staThread = new Thread(() =>
+    try 
     {
-        try 
+        string dllPath = @"C:\Program Files\DigitalPersona\U.are.U RTE\Windows\Lib\.NET\DPUruNet.dll";
+        if (!System.IO.File.Exists(dllPath)) dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
+        if (!System.IO.File.Exists(dllPath)) throw new Exception("File DLL DPUruNet tidak ditemukan!");
+
+        var dpAssembly = Assembly.LoadFile(dllPath);
+        Type readerColType = dpAssembly.GetType("DPUruNet.ReaderCollection");
+        var readersObj = readerColType.GetMethod("GetReaders").Invoke(null, null);
+
+        int count = Convert.ToInt32(readersObj.GetType().GetProperty("Count").GetValue(readersObj));
+        if (count == 0) throw new Exception("Alat U.are.U 4500 tidak terdeteksi! Pastikan USB tertancap kuat.");
+
+        var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
+        
+        // --- 1. BUKA KONEKSI ---
+        var openMethod = reader.GetType().GetMethod("Open");
+        Type prioType = openMethod.GetParameters()[0].ParameterType;
+        
+        // Mode Cooperative (1) lebih stabil untuk API Background
+        object priority = Enum.ToObject(prioType, 1); 
+        int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
+        if (openCode != 0) 
         {
-            string dllPath = @"C:\Program Files\DigitalPersona\U.are.U RTE\Windows\Lib\.NET\DPUruNet.dll";
-            if (!System.IO.File.Exists(dllPath)) dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
-            if (!System.IO.File.Exists(dllPath)) throw new Exception("File DLL DPUruNet tidak ditemukan!");
+            priority = Enum.ToObject(prioType, 2); 
+            openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
+            if (openCode != 0) throw new Exception($"Alat Terkunci oleh sistem! (Kode: {openCode}). CABUT & COLOK ULANG USB.");
+        }
 
-            var dpAssembly = Assembly.LoadFile(dllPath);
-            Type readerColType = dpAssembly.GetType("DPUruNet.ReaderCollection");
-            var readersObj = readerColType.GetMethod("GetReaders").Invoke(null, null);
+        string finalBase64 = "";
 
-            int count = Convert.ToInt32(readersObj.GetType().GetProperty("Count").GetValue(readersObj));
-            if (count == 0) throw new Exception("Alat U.are.U 4500 tidak terdeteksi! Pastikan USB tertancap kuat.");
+        try
+        {
+            object caps = reader.GetType().GetProperty("Capabilities").GetValue(reader);
+            int[] resolutions = (int[])caps.GetType().GetProperty("Resolutions").GetValue(caps);
+            int res = resolutions.Length > 0 ? resolutions[0] : 500;
 
-            var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
-            var openMethod = reader.GetType().GetMethod("Open");
-            Type prioType = openMethod.GetParameters()[0].ParameterType;
+            MethodInfo captureMethod = null;
+            foreach (var method in reader.GetType().GetMethods())
+            {
+                if (method.Name == "Capture" && method.GetParameters().Length == 4) { captureMethod = method; break; }
+            }
+            if (captureMethod == null) throw new Exception("Fungsi Capture tidak ditemukan.");
+
+            var pInfos = captureMethod.GetParameters();
             
-            // Coba Priority 2 (Exclusive), kalau gagal turun ke Priority 1 (Cooperative)
-            object priority = Enum.ToObject(prioType, 2); 
-            int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
-            if (openCode != 0) 
+            // PAKSA format 0 (Raw Image) agar sensor tidak menolak jari yang sedikit cacat
+            object fidFormat = Enum.ToObject(pInfos[0].ParameterType, 0); 
+            object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
+            
+            // --- 2. TEKNIK RADAR POLLING (1 Detik x 20 Kali) ---
+            object finalCaptureResult = null;
+            bool isCaptured = false;
+            int lastQuality = -1;
+
+            // Kita tembak sensor 20 kali, masing-masing selama 1 detik (Total 20 detik maksimal)
+            for (int i = 0; i < 20; i++)
             {
-                priority = Enum.ToObject(prioType, 1); 
-                openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
-                if (openCode != 0) throw new Exception($"Alat Terkunci! CABUT USB SEKARANG & COLOK LAGI.");
-            }
-
-            try
-            {
-                object caps = reader.GetType().GetProperty("Capabilities").GetValue(reader);
-                int[] resolutions = (int[])caps.GetType().GetProperty("Resolutions").GetValue(caps);
-                int res = resolutions.Length > 0 ? resolutions[0] : 500;
-
-                MethodInfo captureMethod = null;
-                foreach (var method in reader.GetType().GetMethods())
-                {
-                    if (method.Name == "Capture" && method.GetParameters().Length == 4) { captureMethod = method; break; }
-                }
-
-                var pInfos = captureMethod.GetParameters();
+                // Timeout 1000ms (1 Detik)
+                object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 1000, res });
                 
-                Array fidFormats = Enum.GetValues(pInfos[0].ParameterType);
-                object fidFormat = fidFormats.GetValue(0); 
-                foreach(var val in fidFormats) if (val.ToString().Contains("ANSI")) { fidFormat = val; break; }
-
-                object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
-                
-                // --- PROSES MENANGKAP GAMBAR (C# SEKARANG PUNYA TELINGA) ---
-                object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
-
                 int resultCode = Convert.ToInt32(captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult));
-                if (resultCode != 0) throw new Exception("Gagal membaca jari dari API. (Kode: " + resultCode + ")");
-
-                object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
-                int qualityCode = Convert.ToInt32(qualityObj);
                 
-                if (qualityCode == 1) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner.");
-                if (qualityCode != 0) throw new Exception("Jari miring/kurang pas. Silakan ulangi. (Kode: " + qualityCode + ")");
-
-                object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
-                if (dataObj == null) throw new Exception("Data sidik jari kosong!");
-
-                var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
-                if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
-
-                var fivObj = viewsObj[0]; 
-                int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
-                int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
+                if (resultCode == 0) // Jika eksekusi berhasil
+                {
+                    object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
+                    int qualityCode = Convert.ToInt32(qualityObj);
+                    
+                    if (qualityCode == 0) // 0 = GOOD (Gambar Berhasil Diambil!)
+                    {
+                        finalCaptureResult = captureResult;
+                        isCaptured = true;
+                        break; // Langsung KELUAR dari putaran 20 detik!
+                    }
+                    else if (qualityCode != 1) // 1 = Timeout. Jika selain 1 & 0, artinya ada jari tapi miring/basah
+                    {
+                        lastQuality = qualityCode; // Simpan errornya, lalu terus ulangi putaran
+                    }
+                }
                 
-                var rawProp = fivObj.GetType().GetProperty("RawImage") ?? fivObj.GetType().GetProperty("Bytes") ?? fivObj.GetType().GetProperty("Data");
-                byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
-
-                byte[] bmpBytes = CreateGrayscaleBmp(rawBytes, width, height);
-                finalBase64 = Convert.ToBase64String(bmpBytes);
+                // Beri nafas ke USB bus selama 50ms sebelum nembak lagi
+                await Task.Delay(50);
             }
-            finally
+
+            if (!isCaptured)
             {
-                reader.GetType().GetMethod("Dispose").Invoke(reader, null);
+                if (lastQuality != -1) throw new Exception($"Jari terdeteksi tapi kualitas gambar sangat buruk/miring. Lap kaca scanner dengan tisu. (Kode: {lastQuality})");
+                throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner.");
             }
+
+            // --- 3. EKSTRAK GAMBAR MENTAH ---
+            object dataObj = finalCaptureResult.GetType().GetProperty("Data").GetValue(finalCaptureResult);
+            if (dataObj == null) throw new Exception("Data sidik jari kosong!");
+
+            var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
+            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
+
+            var fivObj = viewsObj[0]; 
+            int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
+            int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
+            
+            var rawProp = fivObj.GetType().GetProperty("RawImage") ?? fivObj.GetType().GetProperty("Bytes") ?? fivObj.GetType().GetProperty("Data");
+            if (rawProp == null) throw new Exception("Properti byte gambar gagal dibaca.");
+
+            byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
+
+            // --- 4. RAKIT JADI BMP ---
+            byte[] bmpBytes = CreateGrayscaleBmp(rawBytes, width, height);
+            finalBase64 = Convert.ToBase64String(bmpBytes);
         }
-        catch (Exception ex)
+        finally
         {
-            backgroundEx = ex;
+            reader.GetType().GetMethod("Dispose").Invoke(reader, null);
         }
-    });
-
-    // SET THREAD SEBAGAI "STA" (Telinga untuk C#)
-    #pragma warning disable CA1416
-    staThread.SetApartmentState(ApartmentState.STA);
-    #pragma warning restore CA1416
-    
-    staThread.Start();
-    staThread.Join();
-
-    // LEMPAR ERROR JIKA ADA MASALAH DI DALAM THREAD
-    if (backgroundEx != null)
+        
+        await response.WriteAsJsonAsync(new { status = "success", base64 = finalBase64 });
+    }
+    catch (Exception ex)
     {
         response.StatusCode = 500;
-        await response.WriteAsJsonAsync(new { status = "error", message = backgroundEx.InnerException?.Message ?? backgroundEx.Message });
-        return;
+        await response.WriteAsJsonAsync(new { status = "error", message = ex.InnerException?.Message ?? ex.Message });
     }
-
-    // KEMBALIKAN GAMBAR ASLI JIKA SUKSES
-    await response.WriteAsJsonAsync(new { status = "success", base64 = finalBase64 });
 });
 
 // ==============================================================
