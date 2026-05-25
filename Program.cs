@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
+using System.Threading;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://localhost:5000");
@@ -177,7 +178,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI BERSIH & EKSTRAK LANGSUNG)
+// API SCAN FINGERPRINT (JURUS STREAMING MODE BYPASS INTERRUPT)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -206,7 +207,7 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
         {
             priority = Enum.ToObject(prioType, 2); 
             openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
-            if (openCode != 0) throw new Exception($"Alat Terkunci oleh sistem! (Kode: {openCode}). CABUT & COLOK ULANG USB.");
+            if (openCode != 0) throw new Exception($"Alat Terkunci! (Kode: {openCode}). CABUT & COLOK ULANG USB.");
         }
 
         string finalBase64 = "";
@@ -217,15 +218,10 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             int[] resolutions = (int[])caps.GetType().GetProperty("Resolutions").GetValue(caps);
             int res = resolutions.Length > 0 ? resolutions[0] : 500;
 
-            MethodInfo captureMethod = null;
-            foreach (var method in reader.GetType().GetMethods())
-            {
-                if (method.Name == "Capture" && method.GetParameters().Length == 4) { captureMethod = method; break; }
-            }
-
+            // SETUP FORMAT
+            MethodInfo captureMethod = reader.GetType().GetMethod("Capture");
             var pInfos = captureMethod.GetParameters();
             
-            // --- JURUS EKSPLISIT: Jangan tebak index, paksa cari nama ANSI dan DEFAULT! ---
             object fidFormat = null;
             try { fidFormat = Enum.Parse(pInfos[0].ParameterType, "ANSI"); } 
             catch { fidFormat = Enum.GetValues(pInfos[0].ParameterType).GetValue(0); }
@@ -234,36 +230,86 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             try { captureProc = Enum.Parse(pInfos[1].ParameterType, "DP_IMG_PROC_DEFAULT"); }
             catch { captureProc = Enum.GetValues(pInfos[1].ParameterType).GetValue(0); }
             
-            // --- 2. JALANKAN DI BACKGROUND TASK (Mencegah pemblokiran oleh ASP.NET) ---
+            // --- 2. JALANKAN STREAMING MODE DI BACKGROUND ---
             object captureResult = await Task.Run(() => 
             {
-                // Tunggu 20 Detik. Karena di dalam Task.Run, dia tidak akan macet!
-                return captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
+                object result = null;
+                bool streamSupported = false;
+
+                MethodInfo startStream = reader.GetType().GetMethod("StartStreaming");
+                MethodInfo stopStream = reader.GetType().GetMethod("StopStreaming");
+                MethodInfo getStreamImg = reader.GetType().GetMethod("GetStreamImage");
+
+                // JIKA ALAT MENDUKUNG STREAMING, KITA BAJAK KAMERANYA!
+                if (startStream != null && stopStream != null && getStreamImg != null)
+                {
+                    try
+                    {
+                        startStream.Invoke(reader, null);
+                        streamSupported = true; 
+                        
+                        DateTime endTime = DateTime.Now.AddSeconds(20);
+                        while (DateTime.Now < endTime)
+                        {
+                            try 
+                            {
+                                // Tembak dan minta frame saat ini juga (Bypass Windows Event)
+                                object frame = getStreamImg.Invoke(reader, new object[] { fidFormat, captureProc, res });
+                                int qual = Convert.ToInt32(frame.GetType().GetProperty("Quality").GetValue(frame));
+                                
+                                // Jika Quality = 0 (DP_QUALITY_GOOD), berarti ada jari yang jelas!
+                                if (qual == 0) 
+                                {
+                                    result = frame;
+                                    break; // Langsung keluar!
+                                }
+                            }
+                            catch { /* Abaikan error per frame, lanjut tembak lagi */ }
+                            
+                            Thread.Sleep(100); // Tunggu 100ms (10 frame per detik)
+                        }
+                    }
+                    catch 
+                    { 
+                        streamSupported = false; 
+                    }
+                    finally
+                    {
+                        if (streamSupported) {
+                            try { stopStream.Invoke(reader, null); } catch { }
+                        }
+                    }
+                }
+
+                // JIKA GAGAL STREAMING, KEMBALI KE METODE LAMA
+                if (!streamSupported)
+                {
+                    result = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
+                }
+                
+                return result;
             });
 
-            // --- 3. BACA HASIL DENGAN CARA BARU (Tanpa peduli status Quality!) ---
+            if (captureResult == null) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner.");
+
+            // --- 3. BACA HASIL TANGKAPAN ---
             object resultCodeObj = captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult);
             object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
             
-            string resStr = resultCodeObj.ToString(); // Menghasilkan teks asli (Misal: DP_SUCCESS)
-            string qualStr = qualityObj.ToString();   // Menghasilkan teks asli (Misal: DP_QUALITY_TIMED_OUT)
+            int resultCode = Convert.ToInt32(resultCodeObj);
+            int qualityCode = Convert.ToInt32(qualityObj);
+
+            if (resultCode != 0) throw new Exception($"Gagal membaca alat. (Status: {resultCodeObj})");
+            if (qualityCode == 1) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari.");
+            if (qualityCode != 0) throw new Exception($"Jari miring/kotor. (Quality: {qualityObj})");
 
             // AMBIL DATA GAMBAR
             object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
-            
-            // Jika data beneran kosong, baru kita komplain
-            if (dataObj == null) 
-            {
-                throw new Exception($"Data Kosong! (Status: {resStr} | Quality: {qualStr})");
-            }
+            if (dataObj == null) throw new Exception($"Data Kosong! (Status: {resultCodeObj} | Quality: {qualityObj})");
 
             var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
-            if (viewsObj == null || viewsObj.Count == 0) 
-            {
-                throw new Exception($"Frame Kosong! (Status: {resStr} | Quality: {qualStr})");
-            }
+            if (viewsObj == null || viewsObj.Count == 0) throw new Exception($"Frame Kosong! (Status: {resultCodeObj} | Quality: {qualityObj})");
 
-            // JIKA SAMPAI SINI, BERARTI GAMBAR ADA! Langsung ekstrak!
             var fivObj = viewsObj[0]; 
             int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
             int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
