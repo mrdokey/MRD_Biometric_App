@@ -177,7 +177,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI SUPER BULLETPROOF - 20 DETIK)
+// API SCAN FINGERPRINT (VERSI ANTI-MALING WINDOWS)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -196,18 +196,24 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 
         var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
         
-        // --- 1. BUKA KONEKSI ---
+        // --- 1. BUKA KONEKSI (HANCURKAN PEMBAJAKAN WINDOWS HELLO) ---
         var openMethod = reader.GetType().GetMethod("Open");
         Type prioType = openMethod.GetParameters()[0].ParameterType;
         
-        object priority = Enum.ToObject(prioType, 1);
+        // Coba EXCLUSIVE (2) Dulu! Agar WBF tidak bisa mencuri sidik jari
+        object priority = Enum.ToObject(prioType, 2);
         int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
+        
         if (openCode != 0) 
         {
-            priority = Enum.ToObject(prioType, 2);
+            // Jika Exclusive gagal, baru coba Cooperative (1)
+            priority = Enum.ToObject(prioType, 1);
             openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
             if (openCode != 0) throw new Exception($"Alat Sedang Terkunci! HARAP CABUT & COLOK ULANG USB SCANNER SEKARANG.");
         }
+
+        // Beri sensor waktu bernafas 0.2 detik sebelum menembak capture
+        await Task.Delay(200);
 
         string finalBase64 = "";
 
@@ -232,25 +238,22 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             object fidFormat = fidFormats.GetValue(0); 
             foreach(var val in fidFormats) if (val.ToString().Contains("ANSI")) { fidFormat = val; break; }
 
-            Array procFormats = Enum.GetValues(pInfos[1].ParameterType);
-            object captureProc = procFormats.GetValue(0);
-            foreach(var val in procFormats) if (val.ToString().Contains("DEFAULT")) { captureProc = val; break; }
+            // PAKSA PAKAI DEFAULT PROCESSING (Angka 0). 
+            // Jika pakai PIV, sensor akan mereject jari yang sedikit miring dan mengakibatkan timeout!
+            object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
             
-            // --- 4. LAKUKAN CAPTURE (DIPERPANJANG JADI 20 DETIK!) ---
-            // 20000 milidetik = 20 Detik. Waktu yang sangat cukup untuk customer bersiap.
+            // --- 4. LAKUKAN CAPTURE (20 DETIK) ---
             object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
 
-            // --- 5. DETEKSI HASIL (SUKSES ATAU TIMEOUT) ---
+            // --- 5. DETEKSI HASIL ---
             int resultCode = Convert.ToInt32(captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult));
             if (resultCode != 0) throw new Exception("Gagal membaca jari dari API. (Kode: " + resultCode + ")");
 
             object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
             int qualityCode = Convert.ToInt32(qualityObj);
             
-            // 1 = TimedOut (Waktu Habis)
-            if (qualityCode == 1) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner. Silakan coba lagi.");
-            // 0 = Good. Selain itu = Jelek.
-            if (qualityCode != 0) throw new Exception("Kualitas jelek/Jari miring. Tempelkan jari di tengah sensor. (Kode Quality: " + qualityCode + ")");
+            if (qualityCode == 1) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner.");
+            if (qualityCode != 0) throw new Exception("Jari miring/kurang pas. Silakan ulangi. (Kode: " + qualityCode + ")");
 
             // --- 6. EKSTRAK GAMBAR ---
             object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
@@ -263,12 +266,11 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
             int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
             
-            // Pengamanan mutlak berlapis untuk mencari array byte gambar
             var rawProp = fivObj.GetType().GetProperty("RawImage") 
                           ?? fivObj.GetType().GetProperty("Bytes") 
                           ?? fivObj.GetType().GetProperty("Data");
 
-            if (rawProp == null) throw new Exception("Property byte gambar tidak ditemukan dari SDK ini.");
+            if (rawProp == null) throw new Exception("Property byte gambar tidak ditemukan.");
             
             byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
 
