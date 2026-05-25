@@ -177,50 +177,63 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI PORTABLE - BACA DLL LOKAL)
+// API SCAN FINGERPRINT (VERSI ANTI-CASTING ERROR & PATH RTE)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
     try 
     {
-                // PERUBAHAN KRUSIAL: Memaksa C# membaca DPUruNet.dll dari lokasi absolut RTE yang benar
+        // 1. Path Absolut RTE
         string dllPath = @"C:\Program Files\DigitalPersona\U.are.U RTE\Windows\Lib\.NET\DPUruNet.dll";
         
-        // Fallback: Jika di lokasi RTE tidak ada, cari di folder aplikasi (untuk mode portable)
+        // 2. Fallback Path Portable
         if (!System.IO.File.Exists(dllPath))
         {
             dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
         }
 
-        // Cek terakhir: Jika di kedua lokasi tetap tidak ada, lempar error yang jelas
+        // 3. Validasi
         if (!System.IO.File.Exists(dllPath))
         {
             throw new Exception("File 'DPUruNet.dll' tidak ditemukan! Pastikan sudah terinstal di folder RTE atau sudah dicopy ke sebelah MRD_Engine.exe.");
         }
 
-        // 2. Load DLL secara gaib (Reflection)
+        // 4. Load DLL (Reflection Murni Tanpa Casting)
         var dpAssembly = Assembly.LoadFile(dllPath);
         Type readerCollectionType = dpAssembly.GetType("DPUruNet.ReaderCollection");
-        var getReadersMethod = readerCollectionType.GetMethod("GetReaders");
-        var readers = (System.Collections.IList)getReadersMethod.Invoke(null, null);
+        
+        // Ambil object Readers
+        var readersObj = readerCollectionType.GetMethod("GetReaders").Invoke(null, null);
 
-        if (readers == null || readers.Count == 0)
+        // Baca jumlah mesin
+        var countProp = readersObj.GetType().GetProperty("Count");
+        int count = (int)countProp.GetValue(readersObj);
+
+        if (count == 0)
         {
             throw new Exception("Mesin U.are.U 4500 tidak terdeteksi! Coba cabut-colok kabel USB.");
         }
 
-        // 3. Ambil mesin pertama & Buka Koneksi (LAMPU MERAH NYALA)
-        var reader = readers[0]; 
-        var openMethod = reader.GetType().GetMethod("Open");
-        openMethod.Invoke(reader, new object[] { 1 }); // 1 = DP_PRIORITY_COOPERATIVE
+        // Ambil mesin pertama (index ke-0)
+        var itemProp = readersObj.GetType().GetProperty("Item");
+        var reader = itemProp.GetValue(readersObj, new object[] { 0 });
 
-        // Tunggu 3 Detik (Lampu nyala menunggu jari)
+        // Ubah prioritas koneksi menggunakan tipe bawaan pabriknya
+        Type prioType = dpAssembly.GetType("DPUruNet.Constants+Priorities");
+        object priority = Enum.ToObject(prioType, 1);
+
+        // Buka Koneksi ke Scanner (Lampu akan menyala)
+        var openMethod = reader.GetType().GetMethod("Open");
+        openMethod.Invoke(reader, new object[] { priority });
+
+        // Tunggu 3 Detik (Simulasi menunggu jari / agar lampu nyala terlihat)
         await Task.Delay(3000); 
 
-        // 4. Tutup mesin (LAMPU MERAH MATI)
-        var closeMethod = reader.GetType().GetMethod("Dispose");
-        closeMethod.Invoke(reader, null);
+        // Tutup Koneksi (Lampu mati)
+        var disposeMethod = reader.GetType().GetMethod("Dispose");
+        disposeMethod.Invoke(reader, null);
 
+        // Kirim dummy image agar tidak error saat dirender ke UI
         string hasilScanBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; 
         
         await response.WriteAsJsonAsync(new { status = "success", base64 = hasilScanBase64 });
@@ -228,7 +241,6 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
     catch (Exception ex)
     {
         response.StatusCode = 500;
-        // Tampilkan detail pesan error-nya langsung di UI kalau gagal
         await response.WriteAsJsonAsync(new { status = "error", message = ex.Message + " | Bantuan: " + ex.InnerException?.Message });
     }
 });
@@ -238,21 +250,18 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 // ==============================================================
 app.Lifetime.ApplicationStarted.Register(() =>
 {
-    // Jalankan Asynchronous Task SETELAH server Kestrel terkonfirmasi berjalan
     Task.Run(async () =>
     {
-        await Task.Delay(1000); // Tunggu ekstra 1 detik memastikan port 5000 benar-benar sudah listening
+        await Task.Delay(1000); 
         string url = "http://localhost:5000";
         try
         {
-            // Buka Edge dalam mode Aplikasi Desktop Native
             Process.Start(new ProcessStartInfo("msedge", $"--app={url}") { UseShellExecute = true });
         }
         catch
         {
             try
             {
-                // Fallback: Jika Edge tidak ada, buka browser default biasa
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
             catch { }
@@ -260,7 +269,6 @@ app.Lifetime.ApplicationStarted.Register(() =>
     });
 });
 
-// Run server dan MENGUNCI TERMINAL agar tidak langsung mati (auto-close)
 app.Run();
 
 // ==============================================================
