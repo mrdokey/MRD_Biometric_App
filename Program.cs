@@ -177,7 +177,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI REAL CAPTURE & RAW BITMAP GENERATOR)
+// API SCAN FINGERPRINT (VERSI REAL CAPTURE - DYNAMIC ENUM)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -214,37 +214,47 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             }
             if (captureMethod == null) throw new Exception("Fungsi Capture tidak ditemukan di DLL.");
 
-            // 3. SET PARAMETER CAPTURE (Format, Processing, Timeout, Resolution)
+            // 3. AMBIL FORMAT LANGSUNG DARI MESIN (Bukan Tebak Angka)
             var pInfos = captureMethod.GetParameters();
-            object fidFormat = Enum.ToObject(pInfos[0].ParameterType, 0); 
-            object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
             
-            // 4. LAKUKAN CAPTURE (Alat akan menyala dan MENUNGGU JARI maksimal 10 detik)
+            // Mengambil enum pertama yang valid langsung dari tipe datanya
+            Array fidFormats = Enum.GetValues(pInfos[0].ParameterType);
+            object fidFormat = fidFormats.GetValue(0); // Format Gambar
+
+            Array procFormats = Enum.GetValues(pInfos[1].ParameterType);
+            object captureProc = procFormats.GetValue(0); // Proses Capture
+            
+            // 4. LAKUKAN CAPTURE (Tunggu maksimal 10 detik)
             object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 10000, 500 });
 
-            // 5. CEK HASIL CAPTURE
+            // 5. CEK HASIL
             int resultCode = (int)captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult);
             if (resultCode != 0) throw new Exception("Gagal membaca jari. Waktu habis atau penempatan salah. (Kode: " + resultCode + ")");
 
-            // 6. EKSTRAK DATA GAMBAR MENTAH
+            // 6. EKSTRAK GAMBAR MENTAH
             object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
             if (dataObj == null) throw new Exception("Data sidik jari kosong!");
 
             var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
-            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
+            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar!");
 
             var fivObj = viewsObj[0]; 
             int width = (int)fivObj.GetType().GetProperty("Width").GetValue(fivObj);
             int height = (int)fivObj.GetType().GetProperty("Height").GetValue(fivObj);
-            byte[] rawBytes = (byte[])fivObj.GetType().GetProperty("RawImage").GetValue(fivObj);
+            
+            // Cari nama Property untuk byte array-nya (Antisipasi versi SDK beda)
+            var rawProp = fivObj.GetType().GetProperty("RawImage") ?? fivObj.GetType().GetProperty("Bytes");
+            if (rawProp == null) throw new Exception("Property gambar mentah (RawImage) tidak ditemukan.");
 
-            // 7. RAKIT JADI GAMBAR BMP 
+            byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
+
+            // 7. RAKIT JADI BMP
             byte[] bmpBytes = CreateGrayscaleBmp(rawBytes, width, height);
             finalBase64 = Convert.ToBase64String(bmpBytes);
         }
         finally
         {
-            // 8. PASTIKAN ALAT DITUTUP WALAUPUN ERROR
+            // 8. TUTUP ALAT
             reader.GetType().GetMethod("Dispose").Invoke(reader, null);
         }
         
@@ -299,7 +309,7 @@ static void SaveBase64ToFile(string? b64, string path)
     try { File.WriteAllBytes(path, Convert.FromBase64String(b64.Contains(",") ? b64.Split(',')[1] : b64)); } catch {}
 }
 
-// 💥 JURUS RAHASIA: MERAKIT GAMBAR RAW MENJADI BMP TANPA BANTUAN SDK
+// JURUS MERAKIT GAMBAR RAW MENJADI BMP
 static byte[] CreateGrayscaleBmp(byte[] rawData, int width, int height)
 {
     int stride = width;
