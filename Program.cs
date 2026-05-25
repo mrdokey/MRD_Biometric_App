@@ -177,7 +177,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI BULLETPROOF - ANTI LOCK)
+// API SCAN FINGERPRINT (VERSI SUPER BULLETPROOF - 20 DETIK)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -196,30 +196,27 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 
         var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
         
-        // --- 1. BUKA KONEKSI AMAN (CEK LOCK) ---
+        // --- 1. BUKA KONEKSI ---
         var openMethod = reader.GetType().GetMethod("Open");
         Type prioType = openMethod.GetParameters()[0].ParameterType;
         
         object priority = Enum.ToObject(prioType, 1);
         int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
-        
         if (openCode != 0) 
         {
-            // Jika Priority 1 gagal, coba Priority 2
             priority = Enum.ToObject(prioType, 2);
             openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
-            if (openCode != 0)
-                throw new Exception($"Alat Sedang Terkunci Sistem! HARAP CABUT & COLOK ULANG USB SCANNER SEKARANG. (Kode: {openCode})");
+            if (openCode != 0) throw new Exception($"Alat Sedang Terkunci! HARAP CABUT & COLOK ULANG USB SCANNER SEKARANG.");
         }
 
         string finalBase64 = "";
 
         try
         {
-            // --- 2. AMBIL RESOLUSI OTOMATIS DARI HARDWARE ---
+            // --- 2. AMBIL RESOLUSI ---
             object caps = reader.GetType().GetProperty("Capabilities").GetValue(reader);
             int[] resolutions = (int[])caps.GetType().GetProperty("Resolutions").GetValue(caps);
-            int res = resolutions.Length > 0 ? resolutions[0] : 500; // Anti meleset!
+            int res = resolutions.Length > 0 ? resolutions[0] : 500;
 
             // --- 3. CARI FUNGSI CAPTURE ---
             MethodInfo captureMethod = null;
@@ -231,7 +228,6 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 
             var pInfos = captureMethod.GetParameters();
             
-            // Format & Processing Otomatis (Cari ANSI & DEFAULT)
             Array fidFormats = Enum.GetValues(pInfos[0].ParameterType);
             object fidFormat = fidFormats.GetValue(0); 
             foreach(var val in fidFormats) if (val.ToString().Contains("ANSI")) { fidFormat = val; break; }
@@ -240,26 +236,39 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             object captureProc = procFormats.GetValue(0);
             foreach(var val in procFormats) if (val.ToString().Contains("DEFAULT")) { captureProc = val; break; }
             
-            // --- 4. LAKUKAN CAPTURE (Tunggu 10 detik) ---
-            object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 10000, res });
+            // --- 4. LAKUKAN CAPTURE (DIPERPANJANG JADI 20 DETIK!) ---
+            // 20000 milidetik = 20 Detik. Waktu yang sangat cukup untuk customer bersiap.
+            object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
 
-            // --- 5. CEK HASIL CAPTURE ---
+            // --- 5. DETEKSI HASIL (SUKSES ATAU TIMEOUT) ---
             int resultCode = Convert.ToInt32(captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult));
-            if (resultCode != 0) throw new Exception("Gagal membaca jari. Waktu habis atau penempatan salah. (Kode: " + resultCode + ")");
+            if (resultCode != 0) throw new Exception("Gagal membaca jari dari API. (Kode: " + resultCode + ")");
 
-            // --- 6. EKSTRAK GAMBAR MENTAH ---
+            object qualityObj = captureResult.GetType().GetProperty("Quality").GetValue(captureResult);
+            int qualityCode = Convert.ToInt32(qualityObj);
+            
+            // 1 = TimedOut (Waktu Habis)
+            if (qualityCode == 1) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner. Silakan coba lagi.");
+            // 0 = Good. Selain itu = Jelek.
+            if (qualityCode != 0) throw new Exception("Kualitas jelek/Jari miring. Tempelkan jari di tengah sensor. (Kode Quality: " + qualityCode + ")");
+
+            // --- 6. EKSTRAK GAMBAR ---
             object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
             if (dataObj == null) throw new Exception("Data sidik jari kosong!");
 
             var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
-            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
+            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap! Pastikan penempatan jari pas.");
 
             var fivObj = viewsObj[0]; 
             int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
             int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
             
-            var rawProp = fivObj.GetType().GetProperty("RawImage") ?? fivObj.GetType().GetProperty("Bytes");
-            if (rawProp == null) throw new Exception("Property gambar mentah tidak ditemukan.");
+            // Pengamanan mutlak berlapis untuk mencari array byte gambar
+            var rawProp = fivObj.GetType().GetProperty("RawImage") 
+                          ?? fivObj.GetType().GetProperty("Bytes") 
+                          ?? fivObj.GetType().GetProperty("Data");
+
+            if (rawProp == null) throw new Exception("Property byte gambar tidak ditemukan dari SDK ini.");
             
             byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
 
@@ -269,7 +278,6 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
         }
         finally
         {
-            // --- 8. TUTUP ALAT SECARA PAKSA (Agar tidak terkunci lagi) ---
             reader.GetType().GetMethod("Dispose").Invoke(reader, null);
         }
         
