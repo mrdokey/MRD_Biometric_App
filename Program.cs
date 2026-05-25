@@ -177,7 +177,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI ANTI-MALING WINDOWS)
+// API SCAN FINGERPRINT (VERSI EKSKLUSIF MUTLAK)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -196,24 +196,19 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 
         var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
         
-        // --- 1. BUKA KONEKSI (HANCURKAN PEMBAJAKAN WINDOWS HELLO) ---
+        // --- 1. BUKA KONEKSI (WAJIB EKSKLUSIF) ---
         var openMethod = reader.GetType().GetMethod("Open");
         Type prioType = openMethod.GetParameters()[0].ParameterType;
         
-        // Coba EXCLUSIVE (2) Dulu! Agar WBF tidak bisa mencuri sidik jari
-        object priority = Enum.ToObject(prioType, 2);
+        // Memaksa mesin berjalan di Mode Exclusive (Angka 2). 
+        // Jika gagal, dilarang turun ke Koperasi (1) karena pasti Timeout!
+        object priority = Enum.ToObject(prioType, 2); 
         int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
         
         if (openCode != 0) 
         {
-            // Jika Exclusive gagal, baru coba Cooperative (1)
-            priority = Enum.ToObject(prioType, 1);
-            openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
-            if (openCode != 0) throw new Exception($"Alat Sedang Terkunci! HARAP CABUT & COLOK ULANG USB SCANNER SEKARANG.");
+            throw new Exception($"Alat dibajak oleh proses Windows lain! (Kode Error: {openCode}). CABUT USB SEKARANG & COLOK LAGI UNTUK MERESET HARDWARE.");
         }
-
-        // Beri sensor waktu bernafas 0.2 detik sebelum menembak capture
-        await Task.Delay(200);
 
         string finalBase64 = "";
 
@@ -235,14 +230,12 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             var pInfos = captureMethod.GetParameters();
             
             Array fidFormats = Enum.GetValues(pInfos[0].ParameterType);
-            object fidFormat = fidFormats.GetValue(0); 
-            foreach(var val in fidFormats) if (val.ToString().Contains("ANSI")) { fidFormat = val; break; }
+            object fidFormat = fidFormats.GetValue(0); // Auto-detect format index 0
 
-            // PAKSA PAKAI DEFAULT PROCESSING (Angka 0). 
-            // Jika pakai PIV, sensor akan mereject jari yang sedikit miring dan mengakibatkan timeout!
-            object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
+            Array procFormats = Enum.GetValues(pInfos[1].ParameterType);
+            object captureProc = procFormats.GetValue(0); // Auto-detect processing index 0
             
-            // --- 4. LAKUKAN CAPTURE (20 DETIK) ---
+            // --- 4. LAKUKAN CAPTURE (TUNGGU 20 DETIK) ---
             object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 20000, res });
 
             // --- 5. DETEKSI HASIL ---
@@ -255,7 +248,7 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
             if (qualityCode == 1) throw new Exception("Waktu Habis (20 Detik)! Anda belum menempelkan jari ke scanner.");
             if (qualityCode != 0) throw new Exception("Jari miring/kurang pas. Silakan ulangi. (Kode: " + qualityCode + ")");
 
-            // --- 6. EKSTRAK GAMBAR ---
+            // --- 6. EKSTRAK GAMBAR MENTAH ---
             object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
             if (dataObj == null) throw new Exception("Data sidik jari kosong!");
 
