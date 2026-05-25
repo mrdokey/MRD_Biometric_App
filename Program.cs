@@ -177,106 +177,110 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (JURUS REFLECTION MUTLAK - ANTI GAGAL)
+// API SCAN FINGERPRINT (VERSI REAL CAPTURE & RAW BITMAP GENERATOR)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
     try 
     {
         string dllPath = @"C:\Program Files\DigitalPersona\U.are.U RTE\Windows\Lib\.NET\DPUruNet.dll";
-        if (!System.IO.File.Exists(dllPath))
-            dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
-
-        if (!System.IO.File.Exists(dllPath))
-            throw new Exception("File DLL tidak ditemukan!");
+        if (!System.IO.File.Exists(dllPath)) dllPath = Path.Combine(Directory.GetCurrentDirectory(), "DPUruNet.dll");
+        if (!System.IO.File.Exists(dllPath)) throw new Exception("File DLL DPUruNet tidak ditemukan!");
 
         var dpAssembly = Assembly.LoadFile(dllPath);
-        Type readerCollectionType = dpAssembly.GetType("DPUruNet.ReaderCollection");
-        
-        var readersObj = readerCollectionType.GetMethod("GetReaders").Invoke(null, null);
+        Type readerColType = dpAssembly.GetType("DPUruNet.ReaderCollection");
+        var readersObj = readerColType.GetMethod("GetReaders").Invoke(null, null);
 
-        var countProp = readersObj.GetType().GetProperty("Count");
-        int count = (int)countProp.GetValue(readersObj);
+        int count = (int)readersObj.GetType().GetProperty("Count").GetValue(readersObj);
+        if (count == 0) throw new Exception("Alat U.are.U 4500 tidak terdeteksi!");
 
-        if (count == 0)
-        {
-            throw new Exception("Mesin U.are.U 4500 tidak terdeteksi! Coba cabut-colok kabel USB.");
-        }
-
-        // Ambil mesin pertama (index ke-0)
-        var itemProp = readersObj.GetType().GetProperty("Item");
-        var reader = itemProp.GetValue(readersObj, new object[] { 0 });
-
-        // Ambil fungsi Open
+        var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
         var openMethod = reader.GetType().GetMethod("Open");
-
-        // JURUS MUTLAK: Tanya langsung ke fungsi 'Open', apa tipe parameter yang dia minta!
-        // (Kita tidak perlu lagi menebak nama Namespace / Class Enum-nya)
         Type prioType = openMethod.GetParameters()[0].ParameterType;
-
-        // Konversi angka 1 (Priority) menjadi tipe Enum dinamis tersebut
         object priority = Enum.ToObject(prioType, 1);
-
-        // Buka Koneksi (LAMPU MERAH MENYALA!)
+        
+        // 1. BUKA KONEKSI
         openMethod.Invoke(reader, new object[] { priority });
 
-        // Tunggu 3 Detik (Lampu terlihat menyala oleh customer)
-        await Task.Delay(3000); 
+        string finalBase64 = "";
 
-        // Tutup Koneksi
-        var disposeMethod = reader.GetType().GetMethod("Dispose");
-        disposeMethod.Invoke(reader, null);
+        try
+        {
+            // 2. CARI FUNGSI CAPTURE
+            MethodInfo captureMethod = null;
+            foreach (var method in reader.GetType().GetMethods())
+            {
+                if (method.Name == "Capture" && method.GetParameters().Length == 4) { captureMethod = method; break; }
+            }
+            if (captureMethod == null) throw new Exception("Fungsi Capture tidak ditemukan di DLL.");
 
-        // Kembalikan base64 dummy agar web jalan terus
-        string hasilScanBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="; 
+            // 3. SET PARAMETER CAPTURE (Format, Processing, Timeout, Resolution)
+            var pInfos = captureMethod.GetParameters();
+            object fidFormat = Enum.ToObject(pInfos[0].ParameterType, 0); 
+            object captureProc = Enum.ToObject(pInfos[1].ParameterType, 0); 
+            
+            // 4. LAKUKAN CAPTURE (Alat akan menyala dan MENUNGGU JARI maksimal 10 detik)
+            object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 10000, 500 });
+
+            // 5. CEK HASIL CAPTURE
+            int resultCode = (int)captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult);
+            if (resultCode != 0) throw new Exception("Gagal membaca jari. Waktu habis atau penempatan salah. (Kode: " + resultCode + ")");
+
+            // 6. EKSTRAK DATA GAMBAR MENTAH
+            object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
+            if (dataObj == null) throw new Exception("Data sidik jari kosong!");
+
+            var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
+            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
+
+            var fivObj = viewsObj[0]; 
+            int width = (int)fivObj.GetType().GetProperty("Width").GetValue(fivObj);
+            int height = (int)fivObj.GetType().GetProperty("Height").GetValue(fivObj);
+            byte[] rawBytes = (byte[])fivObj.GetType().GetProperty("RawImage").GetValue(fivObj);
+
+            // 7. RAKIT JADI GAMBAR BMP 
+            byte[] bmpBytes = CreateGrayscaleBmp(rawBytes, width, height);
+            finalBase64 = Convert.ToBase64String(bmpBytes);
+        }
+        finally
+        {
+            // 8. PASTIKAN ALAT DITUTUP WALAUPUN ERROR
+            reader.GetType().GetMethod("Dispose").Invoke(reader, null);
+        }
         
-        await response.WriteAsJsonAsync(new { status = "success", base64 = hasilScanBase64 });
+        await response.WriteAsJsonAsync(new { status = "success", base64 = finalBase64 });
     }
     catch (Exception ex)
     {
         response.StatusCode = 500;
-        await response.WriteAsJsonAsync(new { status = "error", message = ex.Message + " | Bantuan: " + ex.InnerException?.Message });
+        await response.WriteAsJsonAsync(new { status = "error", message = ex.InnerException?.Message ?? ex.Message });
     }
 });
 
 // ==============================================================
-// AUTO-LAUNCHER WEBVIEW DESKTOP MODE (VERSI ANTI AUTO-CLOSE)
+// AUTO-LAUNCHER WEBVIEW
 // ==============================================================
 app.Lifetime.ApplicationStarted.Register(() =>
 {
     Task.Run(async () =>
     {
         await Task.Delay(1000); 
-        string url = "http://localhost:5000";
-        try
-        {
-            Process.Start(new ProcessStartInfo("msedge", $"--app={url}") { UseShellExecute = true });
-        }
-        catch
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
-            }
-            catch { }
-        }
+        try { Process.Start(new ProcessStartInfo("msedge", $"--app=http://localhost:5000") { UseShellExecute = true }); }
+        catch { try { Process.Start(new ProcessStartInfo("http://localhost:5000") { UseShellExecute = true }); } catch { } }
     });
 });
 
 app.Run();
 
 // ==============================================================
-// FUNGSI BANTUAN DATABASE & FILE
+// FUNGSI BANTUAN DATABASE & PERAKIT GAMBAR BMP
 // ==============================================================
 static void InitDatabase(string dbPath)
 {
     using var conn = new SqliteConnection($"Data Source={dbPath}");
     conn.Open();
     var cmd = conn.CreateCommand();
-    cmd.CommandText = @"
-        CREATE TABLE IF NOT EXISTS siswa (nis TEXT PRIMARY KEY, nama TEXT, timestamp TEXT, folder_path TEXT, json_kamera TEXT, json_jari TEXT, json_biodata TEXT);
-        CREATE TABLE IF NOT EXISTS settings (key_name TEXT PRIMARY KEY, value_data TEXT);
-    ";
+    cmd.CommandText = "CREATE TABLE IF NOT EXISTS siswa (nis TEXT PRIMARY KEY, nama TEXT, timestamp TEXT, folder_path TEXT, json_kamera TEXT, json_jari TEXT, json_biodata TEXT); CREATE TABLE IF NOT EXISTS settings (key_name TEXT PRIMARY KEY, value_data TEXT);";
     cmd.ExecuteNonQuery();
 }
 static bool IsSystemActivated(string dbPath)
@@ -293,4 +297,44 @@ static void SaveBase64ToFile(string? b64, string path)
 {
     if (string.IsNullOrEmpty(b64)) return;
     try { File.WriteAllBytes(path, Convert.FromBase64String(b64.Contains(",") ? b64.Split(',')[1] : b64)); } catch {}
+}
+
+// 💥 JURUS RAHASIA: MERAKIT GAMBAR RAW MENJADI BMP TANPA BANTUAN SDK
+static byte[] CreateGrayscaleBmp(byte[] rawData, int width, int height)
+{
+    int stride = width;
+    if (width % 4 != 0) stride += 4 - (width % 4); 
+
+    int paletteSize = 256 * 4;
+    int headerSize = 14 + 40 + paletteSize; 
+    int fileSize = headerSize + (stride * height);
+
+    byte[] bmp = new byte[fileSize];
+
+    bmp[0] = 0x42; bmp[1] = 0x4D; 
+    BitConverter.GetBytes(fileSize).CopyTo(bmp, 2); 
+    bmp[10] = (byte)headerSize; 
+
+    bmp[14] = 40; 
+    BitConverter.GetBytes(width).CopyTo(bmp, 18);
+    BitConverter.GetBytes(height).CopyTo(bmp, 22); 
+    bmp[26] = 1; 
+    bmp[28] = 8; 
+    BitConverter.GetBytes(stride * height).CopyTo(bmp, 34); 
+
+    for (int i = 0; i < 256; i++)
+    {
+        int offset = headerSize - paletteSize + (i * 4);
+        bmp[offset] = (byte)i;     
+        bmp[offset + 1] = (byte)i; 
+        bmp[offset + 2] = (byte)i; 
+        bmp[offset + 3] = 0;       
+    }
+
+    for (int y = 0; y < height; y++)
+    {
+        Buffer.BlockCopy(rawData, y * width, bmp, headerSize + ((height - 1 - y) * stride), width);
+    }
+
+    return bmp;
 }
