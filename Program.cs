@@ -177,7 +177,7 @@ app.MapPost("/api/save", async (HttpContext context) =>
 });
 
 // ==============================================================
-// API SCAN FINGERPRINT (VERSI REAL CAPTURE - DYNAMIC ENUM)
+// API SCAN FINGERPRINT (VERSI BULLETPROOF - ANTI LOCK)
 // ==============================================================
 app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
 {
@@ -191,70 +191,85 @@ app.MapGet("/api/scan_fingerprint", async (HttpResponse response) =>
         Type readerColType = dpAssembly.GetType("DPUruNet.ReaderCollection");
         var readersObj = readerColType.GetMethod("GetReaders").Invoke(null, null);
 
-        int count = (int)readersObj.GetType().GetProperty("Count").GetValue(readersObj);
-        if (count == 0) throw new Exception("Alat U.are.U 4500 tidak terdeteksi!");
+        int count = Convert.ToInt32(readersObj.GetType().GetProperty("Count").GetValue(readersObj));
+        if (count == 0) throw new Exception("Alat U.are.U 4500 tidak terdeteksi! Pastikan USB tertancap kuat.");
 
         var reader = readersObj.GetType().GetProperty("Item").GetValue(readersObj, new object[] { 0 });
+        
+        // --- 1. BUKA KONEKSI AMAN (CEK LOCK) ---
         var openMethod = reader.GetType().GetMethod("Open");
         Type prioType = openMethod.GetParameters()[0].ParameterType;
-        object priority = Enum.ToObject(prioType, 1);
         
-        // 1. BUKA KONEKSI
-        openMethod.Invoke(reader, new object[] { priority });
+        object priority = Enum.ToObject(prioType, 1);
+        int openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
+        
+        if (openCode != 0) 
+        {
+            // Jika Priority 1 gagal, coba Priority 2
+            priority = Enum.ToObject(prioType, 2);
+            openCode = Convert.ToInt32(openMethod.Invoke(reader, new object[] { priority }));
+            if (openCode != 0)
+                throw new Exception($"Alat Sedang Terkunci Sistem! HARAP CABUT & COLOK ULANG USB SCANNER SEKARANG. (Kode: {openCode})");
+        }
 
         string finalBase64 = "";
 
         try
         {
-            // 2. CARI FUNGSI CAPTURE
+            // --- 2. AMBIL RESOLUSI OTOMATIS DARI HARDWARE ---
+            object caps = reader.GetType().GetProperty("Capabilities").GetValue(reader);
+            int[] resolutions = (int[])caps.GetType().GetProperty("Resolutions").GetValue(caps);
+            int res = resolutions.Length > 0 ? resolutions[0] : 500; // Anti meleset!
+
+            // --- 3. CARI FUNGSI CAPTURE ---
             MethodInfo captureMethod = null;
             foreach (var method in reader.GetType().GetMethods())
             {
                 if (method.Name == "Capture" && method.GetParameters().Length == 4) { captureMethod = method; break; }
             }
-            if (captureMethod == null) throw new Exception("Fungsi Capture tidak ditemukan di DLL.");
+            if (captureMethod == null) throw new Exception("Fungsi Capture tidak ditemukan.");
 
-            // 3. AMBIL FORMAT LANGSUNG DARI MESIN (Bukan Tebak Angka)
             var pInfos = captureMethod.GetParameters();
             
-            // Mengambil enum pertama yang valid langsung dari tipe datanya
+            // Format & Processing Otomatis (Cari ANSI & DEFAULT)
             Array fidFormats = Enum.GetValues(pInfos[0].ParameterType);
-            object fidFormat = fidFormats.GetValue(0); // Format Gambar
+            object fidFormat = fidFormats.GetValue(0); 
+            foreach(var val in fidFormats) if (val.ToString().Contains("ANSI")) { fidFormat = val; break; }
 
             Array procFormats = Enum.GetValues(pInfos[1].ParameterType);
-            object captureProc = procFormats.GetValue(0); // Proses Capture
+            object captureProc = procFormats.GetValue(0);
+            foreach(var val in procFormats) if (val.ToString().Contains("DEFAULT")) { captureProc = val; break; }
             
-            // 4. LAKUKAN CAPTURE (Tunggu maksimal 10 detik)
-            object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 10000, 500 });
+            // --- 4. LAKUKAN CAPTURE (Tunggu 10 detik) ---
+            object captureResult = captureMethod.Invoke(reader, new object[] { fidFormat, captureProc, 10000, res });
 
-            // 5. CEK HASIL
-            int resultCode = (int)captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult);
+            // --- 5. CEK HASIL CAPTURE ---
+            int resultCode = Convert.ToInt32(captureResult.GetType().GetProperty("ResultCode").GetValue(captureResult));
             if (resultCode != 0) throw new Exception("Gagal membaca jari. Waktu habis atau penempatan salah. (Kode: " + resultCode + ")");
 
-            // 6. EKSTRAK GAMBAR MENTAH
+            // --- 6. EKSTRAK GAMBAR MENTAH ---
             object dataObj = captureResult.GetType().GetProperty("Data").GetValue(captureResult);
             if (dataObj == null) throw new Exception("Data sidik jari kosong!");
 
             var viewsObj = (System.Collections.IList)dataObj.GetType().GetProperty("Views").GetValue(dataObj);
-            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar!");
+            if (viewsObj.Count == 0) throw new Exception("Tidak ada frame gambar tertangkap!");
 
             var fivObj = viewsObj[0]; 
-            int width = (int)fivObj.GetType().GetProperty("Width").GetValue(fivObj);
-            int height = (int)fivObj.GetType().GetProperty("Height").GetValue(fivObj);
+            int width = Convert.ToInt32(fivObj.GetType().GetProperty("Width").GetValue(fivObj));
+            int height = Convert.ToInt32(fivObj.GetType().GetProperty("Height").GetValue(fivObj));
             
-            // Cari nama Property untuk byte array-nya (Antisipasi versi SDK beda)
             var rawProp = fivObj.GetType().GetProperty("RawImage") ?? fivObj.GetType().GetProperty("Bytes");
-            if (rawProp == null) throw new Exception("Property gambar mentah (RawImage) tidak ditemukan.");
-
+            if (rawProp == null) throw new Exception("Property gambar mentah tidak ditemukan.");
+            
             byte[] rawBytes = (byte[])rawProp.GetValue(fivObj);
 
-            // 7. RAKIT JADI BMP
+            // --- 7. RAKIT JADI BMP ---
             byte[] bmpBytes = CreateGrayscaleBmp(rawBytes, width, height);
             finalBase64 = Convert.ToBase64String(bmpBytes);
         }
         finally
         {
-            // 8. TUTUP ALAT
+            // --- 8. TUTUP ALAT SECARA PAKSA (Agar tidak terkunci lagi) ---
             reader.GetType().GetMethod("Dispose").Invoke(reader, null);
         }
         
